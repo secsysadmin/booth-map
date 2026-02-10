@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getAuthUser } from "@/lib/auth"
-import { rateLimit } from "@/lib/rate-limit"
 import * as XLSX from "xlsx"
 import type { Day, Sponsorship } from "@/types"
 
@@ -33,8 +32,6 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const limited = rateLimit(req)
-  if (limited) return limited
   const user = await getAuthUser(req)
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
