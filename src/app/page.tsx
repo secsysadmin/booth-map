@@ -61,7 +61,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gray-50">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Career Fair Booth Planner</CardTitle>
+          <CardTitle className="text-2xl">Career Fair Booth Map</CardTitle>
           <CardDescription>
             {isSignUp ? "Create an account" : "Sign in to manage your booth assignments"}
           </CardDescription>

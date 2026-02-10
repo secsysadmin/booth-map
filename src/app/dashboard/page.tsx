@@ -53,16 +53,16 @@ export default function DashboardPage() {
     }
   }, [user, loading, router])
 
-  useEffect(() => {
-    if (user) loadDrafts()
-  }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
-
   async function loadDrafts() {
     const res = await apiFetch("/api/drafts")
     if (res.ok) {
       setDrafts(await res.json())
     }
   }
+
+  useEffect(() => {
+    if (user) loadDrafts() // eslint-disable-line react-hooks/set-state-in-effect
+  }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function createDraft() {
     const res = await apiFetch("/api/drafts", {
@@ -120,7 +120,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-50">
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <h1 className="text-xl font-semibold">Career Fair Booth Planner</h1>
+          <h1 className="text-xl font-semibold">Career Fair Booth Map</h1>
           <div className="flex items-center gap-4">
             <span className="text-sm text-muted-foreground">{user.email}</span>
             <Button variant="outline" size="sm" onClick={signOut}>
