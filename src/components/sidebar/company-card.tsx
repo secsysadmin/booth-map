@@ -43,16 +43,24 @@ export function CompanyCard({ company, isAssigned }: CompanyCardProps) {
 
   async function handleSponsorshipChange(sponsorship: Sponsorship) {
     if (sponsorship === company.sponsorship) return
-    if (isAssigned) {
-      await unassignCompany(company.id)
+    try {
+      if (isAssigned) {
+        await unassignCompany(company.id)
+      }
+      await updateCompany(company.id, { sponsorship })
+      toast.success(`Updated to ${SPONSORSHIP_CONFIG[sponsorship].label}`)
+    } catch {
+      // Store already showed error toast
     }
-    await updateCompany(company.id, { sponsorship })
-    toast.success(`Updated to ${SPONSORSHIP_CONFIG[sponsorship].label}`)
   }
 
   async function handleQueueToggle(checked: boolean) {
-    await updateCompany(company.id, { hasQueue: checked })
-    toast.success(checked ? "Queue added" : "Queue removed")
+    try {
+      await updateCompany(company.id, { hasQueue: checked })
+      toast.success(checked ? "Queue added" : "Queue removed")
+    } catch {
+      // Store already showed error toast
+    }
   }
 
   async function handleDaysChange(days: Day[]) {
@@ -64,12 +72,20 @@ export function CompanyCard({ company, isAssigned }: CompanyCardProps) {
       // Determine new assignment day value
       const newAssignmentDay = days.length === 2 ? null : days[0]
 
-      // Update the assignment day (keeps same booths)
-      await moveCompany(assignment.id, undefined, newAssignmentDay)
+      try {
+        // Update the assignment day (keeps same booths)
+        await moveCompany(assignment.id, undefined, newAssignmentDay)
+      } catch {
+        return // moveCompany already showed a toast
+      }
     }
 
-    await updateCompany(company.id, { days })
-    toast.success("Days updated")
+    try {
+      await updateCompany(company.id, { days })
+      toast.success("Days updated")
+    } catch {
+      // Store already showed error toast
+    }
   }
 
   return (

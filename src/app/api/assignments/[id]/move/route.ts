@@ -29,6 +29,7 @@ export async function PUT(
       draftId: assignment.draftId,
       id: { not: id },
     },
+    include: { company: true },
   })
 
   const effectiveDay = dayUpdate !== undefined ? dayUpdate : assignment.day
@@ -41,12 +42,12 @@ export async function PUT(
       existing.day === effectiveDay
 
     if (daysOverlap) {
-      const conflict = existing.boothIds.some((bid: string) =>
+      const conflictingBooth = existing.boothIds.find((bid: string) =>
         effectiveBooths.includes(bid)
       )
-      if (conflict) {
+      if (conflictingBooth) {
         return NextResponse.json(
-          { error: "Booth conflict" },
+          { error: `Booth conflict: ${conflictingBooth} is assigned to ${existing.company.name}` },
           { status: 409 }
         )
       }

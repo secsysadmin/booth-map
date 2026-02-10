@@ -304,7 +304,7 @@ export function BoothMap() {
       const assignment = getAssignmentForCompany(selectedCompany)
       if (!assignment) return
 
-      moveCompany(assignment.id, hoveredBooths)
+      moveCompany(assignment.id, hoveredBooths).catch(() => {})
       cancelRepositioning()
       repoLastResult.current = ""
     },
@@ -353,7 +353,7 @@ export function BoothMap() {
         draggedCompany.days.includes("THURSDAY")
       const assignDay = isBothDays ? null : activeDay
 
-      assignCompany(draggedCompany.id, hoveredBooths, assignDay)
+      assignCompany(draggedCompany.id, hoveredBooths, assignDay).catch(() => {})
       setDraggedCompany(null)
       setHoveredBooths([], true)
     },

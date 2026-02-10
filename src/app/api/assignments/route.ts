@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
   // Check for booth conflicts
   const existingAssignments = await prisma.boothAssignment.findMany({
     where: { draftId },
+    include: { company: true },
   })
 
   for (const existing of existingAssignments) {
@@ -28,12 +29,12 @@ export async function POST(req: NextRequest) {
       existing.day === day
 
     if (daysOverlap) {
-      const conflict = existing.boothIds.some((bid: string) =>
+      const conflictingBooth = existing.boothIds.find((bid: string) =>
         boothIds.includes(bid)
       )
-      if (conflict) {
+      if (conflictingBooth) {
         return NextResponse.json(
-          { error: "Booth conflict: one or more booths are already assigned" },
+          { error: `Booth conflict: ${conflictingBooth} is assigned to ${existing.company.name}` },
           { status: 409 }
         )
       }

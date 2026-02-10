@@ -121,6 +121,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
     } catch (e) {
       set({ companies: snapshot })
       toast.error(e instanceof Error ? e.message : "Failed to update company")
+      throw e
     }
   },
 
@@ -164,6 +165,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
         assignments: state.assignments.filter((a) => a.id !== tempId),
       }))
       toast.error(e instanceof Error ? e.message : "Failed to assign company")
+      throw e
     }
   },
 
@@ -191,6 +193,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
         assignments: [...state.assignments, assignment],
       }))
       toast.error(e instanceof Error ? e.message : "Failed to unassign company")
+      throw e
     }
   },
 
@@ -231,6 +234,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
     } catch (e) {
       set({ assignments: snapshot })
       toast.error(e instanceof Error ? e.message : "Failed to move company")
+      throw e
     }
   },
 
