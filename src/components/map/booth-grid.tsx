@@ -33,6 +33,7 @@ export function BoothGrid() {
     setSelectedCompany,
     unassignCompany,
     setTooltip,
+    setContextMenu,
     repositioning,
     startRepositioning,
     cancelRepositioning,
@@ -77,19 +78,17 @@ export function BoothGrid() {
 
   // Compute row label positions
   const rowLabels = useMemo(() => {
-    const labels: { row: string; x: number }[] = []
+    const labels: { row: string; x: number; colWidth: number }[] = []
     let currentX = CANVAS_PADDING
     for (const row of ALL_ROWS) {
       const isEdge = EDGE_ROWS.has(row)
       if (isEdge) {
-        labels.push({ row, x: currentX + BOOTH_WIDTH / 2 })
+        labels.push({ row, x: currentX, colWidth: BOOTH_WIDTH })
         currentX += BOOTH_WIDTH + ROW_GAP
       } else {
-        labels.push({
-          row,
-          x: currentX + BOOTH_WIDTH + SEGMENT_SIDE_GAP / 2,
-        })
-        currentX += 2 * BOOTH_WIDTH + SEGMENT_SIDE_GAP + ROW_GAP
+        const totalWidth = 2 * BOOTH_WIDTH + SEGMENT_SIDE_GAP
+        labels.push({ row, x: currentX, colWidth: totalWidth })
+        currentX += totalWidth + ROW_GAP
       }
     }
     return labels
@@ -143,15 +142,17 @@ export function BoothGrid() {
   return (
     <>
       {/* Row labels */}
-      {rowLabels.map(({ row, x }) => (
+      {rowLabels.map(({ row, x, colWidth }) => (
         <Text
           key={`label-${row}`}
-          x={x - 8}
+          x={x}
           y={CANVAS_PADDING - 20}
+          width={colWidth}
           text={row}
           fontSize={14}
           fontStyle="bold"
           fill="#333"
+          align="center"
         />
       ))}
 
@@ -218,7 +219,22 @@ export function BoothGrid() {
               stroke={stroke}
               strokeWidth={strokeWidth}
               cornerRadius={2}
-              onClick={() => {
+              onContextMenu={(e) => {
+                e.evt.preventDefault()
+                const stage = e.target.getStage()
+                const pointer = stage?.getPointerPosition()
+                if (!pointer || !occupant) return
+                setContextMenu({
+                  x: pointer.x,
+                  y: pointer.y,
+                  companyId: occupant.companyId,
+                  assignmentId: occupant.assignmentId,
+                })
+              }}
+              onClick={(e) => {
+                // Ignore right-clicks — handled by onContextMenu
+                if (e.evt.button !== 0) return
+                setContextMenu(null)
                 if (repositioning && selectedCompany) {
                   // During repositioning, clicking an empty booth is handled by BoothMap's onMouseMove+click
                   // Clicking the same company again cancels

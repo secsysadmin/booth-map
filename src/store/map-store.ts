@@ -26,6 +26,7 @@ interface MapStore {
   selectedCompany: string | null
   repositioning: boolean  // true when a selected company is being moved
   tooltip: { x: number; y: number; boothId: string; companyName: string; sponsorship: string; boothIds: string[] } | null
+  contextMenu: { x: number; y: number; companyId: string; assignmentId: string } | null
 
   // Export
   exportMapFn: (() => void) | null
@@ -55,6 +56,7 @@ interface MapStore {
   startRepositioning: (companyId: string) => void
   cancelRepositioning: () => void
   setTooltip: (tooltip: MapStore["tooltip"]) => void
+  setContextMenu: (menu: MapStore["contextMenu"]) => void
   setSidebarFilter: (filter: Partial<SidebarFilter>) => void
 
   // Derived helpers
@@ -80,6 +82,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
   selectedCompany: null,
   repositioning: false,
   tooltip: null,
+  contextMenu: null,
   exportMapFn: null,
 
   sidebarFilter: {
@@ -271,6 +274,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
   startRepositioning: (companyId) => set({ selectedCompany: companyId, repositioning: true, hoveredBooths: [], hoveredValid: true }),
   cancelRepositioning: () => set({ selectedCompany: null, repositioning: false, hoveredBooths: [], hoveredValid: true }),
   setTooltip: (tooltip) => set({ tooltip }),
+  setContextMenu: (menu) => set({ contextMenu: menu }),
   setExportMapFn: (fn) => set({ exportMapFn: fn }),
   setSidebarFilter: (filter) =>
     set((state) => ({

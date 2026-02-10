@@ -11,8 +11,10 @@ import {
   getRowAndSegmentAt,
 } from "@/lib/booth-geometry"
 import { Button } from "@/components/ui/button"
-import { X, Move } from "lucide-react"
+import { X, Move, Check } from "lucide-react"
 import type Konva from "konva"
+import type { Sponsorship, Day } from "@/types"
+import { toast } from "sonner"
 
 export function BoothMap() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -40,12 +42,16 @@ export function BoothMap() {
     setHoveredBooths,
     assignCompany,
     tooltip,
+    contextMenu,
+    setContextMenu,
     repositioning,
     selectedCompany,
     cancelRepositioning,
     unassignCompany,
     moveCompany,
+    updateCompany,
     companies,
+    startRepositioning,
     getAssignmentForCompany,
   } = useMapStore()
 
@@ -80,16 +86,20 @@ export function BoothMap() {
     }
   }, [stageSize.width, stageSize.height, canvasDims.width, canvasDims.height])
 
-  // Escape key to cancel repositioning
+  // Escape key to cancel repositioning or close context menu
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && repositioning) {
-        cancelRepositioning()
+      if (e.key === "Escape") {
+        if (useMapStore.getState().contextMenu) {
+          setContextMenu(null)
+        } else if (repositioning) {
+          cancelRepositioning()
+        }
       }
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [repositioning, cancelRepositioning])
+  }, [repositioning, cancelRepositioning, setContextMenu])
 
   // Register PNG export function
   useEffect(() => {
@@ -137,10 +147,11 @@ export function BoothMap() {
     return () => useMapStore.getState().setExportMapFn(null)
   }, [canvasDims.width, canvasDims.height])
 
-  // Zoom with scroll wheel
+  // Zoom with scroll wheel (also close context menu)
   const handleWheel = useCallback(
     (e: Konva.KonvaEventObject<WheelEvent>) => {
       e.evt.preventDefault()
+      useMapStore.getState().setContextMenu(null)
       const stage = stageRef.current
       if (!stage) return
 
@@ -429,17 +440,22 @@ export function BoothMap() {
         draggable={!repositioning}
         onWheel={handleWheel}
         onDragEnd={(e) => {
+          setContextMenu(null)
           setPosition({ x: e.target.x(), y: e.target.y() })
         }}
-        onClick={handleCanvasClick}
+        onClick={(e) => {
+          if (e.evt.button !== 0) return
+          setContextMenu(null)
+          handleCanvasClick(e)
+        }}
       >
         <Layer>
           <BoothGrid />
         </Layer>
       </Stage>
 
-      {/* Tooltip overlay */}
-      {tooltip && !repositioning && (
+      {/* Tooltip overlay (hide when context menu is open) */}
+      {tooltip && !repositioning && !contextMenu && (
         <div
           className="pointer-events-none absolute z-50 rounded-md border bg-white px-3 py-2 shadow-md"
           style={{
@@ -457,6 +473,181 @@ export function BoothMap() {
           </p>
         </div>
       )}
+
+      {/* Right-click context menu */}
+      {contextMenu && (
+        <BoothContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          companyId={contextMenu.companyId}
+          assignmentId={contextMenu.assignmentId}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+const SPONSORSHIP_OPTIONS: Sponsorship[] = ["MAROON", "DIAMOND", "GOLD", "SILVER", "BASIC"]
+
+function BoothContextMenu({
+  x,
+  y,
+  companyId,
+  assignmentId,
+  onClose,
+}: {
+  x: number
+  y: number
+  companyId: string
+  assignmentId: string
+  onClose: () => void
+}) {
+  const menuRef = useRef<HTMLDivElement>(null)
+  const { companies, updateCompany, unassignCompany, moveCompany, startRepositioning, getAssignmentForCompany } = useMapStore()
+  const company = companies.find((c) => c.id === companyId)
+
+  // Close on outside click
+  useEffect(() => {
+    function handleMouseDown(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose()
+      }
+    }
+    document.addEventListener("mousedown", handleMouseDown)
+    return () => document.removeEventListener("mousedown", handleMouseDown)
+  }, [onClose])
+
+  if (!company) return null
+
+  const isBothDays = company.days.includes("WEDNESDAY") && company.days.includes("THURSDAY")
+
+  async function handleSponsorshipChange(sponsorship: Sponsorship) {
+    if (sponsorship === company!.sponsorship) { onClose(); return }
+    try {
+      await unassignCompany(company!.id)
+      await updateCompany(company!.id, { sponsorship })
+      toast.success(`Updated to ${SPONSORSHIP_CONFIG[sponsorship].label}`)
+    } catch { /* store showed toast */ }
+    onClose()
+  }
+
+  async function handleDaysChange(days: Day[]) {
+    if (JSON.stringify(days) === JSON.stringify(company!.days)) { onClose(); return }
+    const assignment = getAssignmentForCompany(company!.id)
+    if (assignment) {
+      const newAssignmentDay = days.length === 2 ? null : days[0]
+      try {
+        await moveCompany(assignment.id, undefined, newAssignmentDay)
+      } catch { onClose(); return }
+    }
+    try {
+      await updateCompany(company!.id, { days })
+      toast.success("Days updated")
+    } catch { /* store showed toast */ }
+    onClose()
+  }
+
+  async function handleQueueToggle() {
+    const newVal = !company!.hasQueue
+    try {
+      await updateCompany(company!.id, { hasQueue: newVal })
+      toast.success(newVal ? "Queue added" : "Queue removed")
+    } catch { /* store showed toast */ }
+    onClose()
+  }
+
+  function handleReposition() {
+    onClose()
+    startRepositioning(company!.id)
+  }
+
+  async function handleUnassign() {
+    try {
+      await unassignCompany(company!.id)
+      toast.success("Company unassigned")
+    } catch { /* store showed toast */ }
+    onClose()
+  }
+
+  return (
+    <div
+      ref={menuRef}
+      className="absolute z-50 min-w-[180px] rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+      style={{ left: x, top: y }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+        Sponsorship
+      </div>
+      {SPONSORSHIP_OPTIONS.map((s) => (
+        <button
+          key={s}
+          onClick={() => handleSponsorshipChange(s)}
+          className="flex w-full items-center rounded-sm px-2 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground"
+        >
+          <span
+            className="mr-2 inline-block h-2.5 w-2.5 rounded-full"
+            style={{ backgroundColor: SPONSORSHIP_CONFIG[s].color }}
+          />
+          {SPONSORSHIP_CONFIG[s].label}
+          {s === company.sponsorship && <span className="ml-auto">✓</span>}
+        </button>
+      ))}
+
+      <div className="-mx-1 my-1 h-px bg-border" />
+
+      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+        Days
+      </div>
+      <button
+        onClick={() => handleDaysChange(["WEDNESDAY"])}
+        className="flex w-full items-center rounded-sm px-2 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground"
+      >
+        Wednesday
+        {company.days.length === 1 && company.days[0] === "WEDNESDAY" && <span className="ml-auto">✓</span>}
+      </button>
+      <button
+        onClick={() => handleDaysChange(["THURSDAY"])}
+        className="flex w-full items-center rounded-sm px-2 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground"
+      >
+        Thursday
+        {company.days.length === 1 && company.days[0] === "THURSDAY" && <span className="ml-auto">✓</span>}
+      </button>
+      <button
+        onClick={() => handleDaysChange(["WEDNESDAY", "THURSDAY"])}
+        className="flex w-full items-center rounded-sm px-2 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground"
+      >
+        Both
+        {isBothDays && <span className="ml-auto">✓</span>}
+      </button>
+
+      <div className="-mx-1 my-1 h-px bg-border" />
+
+      <button
+        onClick={handleQueueToggle}
+        className="flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground"
+      >
+        Company Queue
+        {company.hasQueue && <Check className="h-3.5 w-3.5" />}
+      </button>
+
+      <div className="-mx-1 my-1 h-px bg-border" />
+
+      <button
+        onClick={handleReposition}
+        className="flex w-full items-center rounded-sm px-2 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground"
+      >
+        <Move className="mr-2 h-3.5 w-3.5" />
+        Reposition
+      </button>
+      <button
+        onClick={handleUnassign}
+        className="flex w-full items-center rounded-sm px-2 py-1.5 text-xs text-destructive hover:bg-destructive/10"
+      >
+        <X className="mr-2 h-3.5 w-3.5" />
+        Unassign
+      </button>
     </div>
   )
 }
