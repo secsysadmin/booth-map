@@ -10,8 +10,13 @@ export function useAuth() {
   const supabase = getSupabaseBrowserClient()
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        supabase.auth.signOut()
+        setUser(null)
+      } else {
+        setUser(session?.user ?? null)
+      }
       setLoading(false)
     })
 
@@ -51,8 +56,12 @@ export function useAuth() {
   }, [supabase])
 
   const getToken = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    return session?.access_token ?? null
+    const { data, error } = await supabase.auth.getSession()
+    if (error) {
+      await supabase.auth.signOut()
+      return null
+    }
+    return data.session?.access_token ?? null
   }, [supabase])
 
   const resetPassword = useCallback(

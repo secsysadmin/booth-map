@@ -8,21 +8,8 @@ import type {
   SidebarFilter,
 } from "@/types"
 import { getBoothLayout } from "@/lib/booth-geometry"
-import { getSupabaseBrowserClient } from "@/lib/supabase-browser"
-
-async function authFetch(url: string, options: RequestInit = {}) {
-  const supabase = getSupabaseBrowserClient()
-  const { data: { session } } = await supabase.auth.getSession()
-  const token = session?.access_token
-  const headers: Record<string, string> = {
-    ...(options.headers as Record<string, string>),
-    "Content-Type": "application/json",
-  }
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`
-  }
-  return fetch(url, { ...options, headers })
-}
+import { authFetch } from "@/lib/auth-fetch"
+import { toast } from "sonner"
 
 interface MapStore {
   // Data
@@ -109,17 +96,31 @@ export const useMapStore = create<MapStore>((set, get) => ({
     set((state) => ({ companies: [...state.companies, company] })),
 
   updateCompany: async (id, updates) => {
-    const res = await authFetch(`/api/companies/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(updates),
-    })
-    if (res.ok) {
+    const snapshot = get().companies
+    // Optimistic update
+    set((state) => ({
+      companies: state.companies.map((c) =>
+        c.id === id ? { ...c, ...updates } : c
+      ),
+    }))
+    try {
+      const res = await authFetch(`/api/companies/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to update company")
+      }
       const updated = await res.json()
       set((state) => ({
         companies: state.companies.map((c) =>
           c.id === id ? { ...c, ...updated } : c
         ),
       }))
+    } catch (e) {
+      set({ companies: snapshot })
+      toast.error(e instanceof Error ? e.message : "Failed to update company")
     }
   },
 
@@ -128,17 +129,41 @@ export const useMapStore = create<MapStore>((set, get) => ({
     const { draftId } = get()
     if (!draftId) return
 
-    const res = await authFetch("/api/assignments", {
-      method: "POST",
-      body: JSON.stringify({ companyId, draftId, boothIds, day }),
-    })
-
-    if (res.ok) {
+    const tempId = `temp-${Date.now()}`
+    const tempAssignment: BoothAssignment = {
+      id: tempId,
+      companyId,
+      draftId,
+      boothIds,
+      day,
+    }
+    // Optimistic update
+    set((state) => ({
+      assignments: [...state.assignments, tempAssignment],
+      selectedCompany: null,
+    }))
+    try {
+      const res = await authFetch("/api/assignments", {
+        method: "POST",
+        body: JSON.stringify({ companyId, draftId, boothIds, day }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to assign company")
+      }
       const assignment: BoothAssignment = await res.json()
+      // Replace temp with real assignment
       set((state) => ({
-        assignments: [...state.assignments, assignment],
-        selectedCompany: null,
+        assignments: state.assignments.map((a) =>
+          a.id === tempId ? assignment : a
+        ),
       }))
+    } catch (e) {
+      // Rollback: remove the temp assignment
+      set((state) => ({
+        assignments: state.assignments.filter((a) => a.id !== tempId),
+      }))
+      toast.error(e instanceof Error ? e.message : "Failed to assign company")
     }
   },
 
@@ -147,34 +172,65 @@ export const useMapStore = create<MapStore>((set, get) => ({
     const assignment = assignments.find((a) => a.companyId === companyId)
     if (!assignment) return
 
-    const res = await authFetch(`/api/assignments/${assignment.id}`, {
-      method: "DELETE",
-    })
-
-    if (res.ok) {
+    // Optimistic update
+    set((state) => ({
+      assignments: state.assignments.filter((a) => a.id !== assignment.id),
+      selectedCompany: null,
+    }))
+    try {
+      const res = await authFetch(`/api/assignments/${assignment.id}`, {
+        method: "DELETE",
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to unassign company")
+      }
+    } catch (e) {
+      // Rollback: re-add the assignment
       set((state) => ({
-        assignments: state.assignments.filter((a) => a.id !== assignment.id),
-        selectedCompany: null,
+        assignments: [...state.assignments, assignment],
       }))
+      toast.error(e instanceof Error ? e.message : "Failed to unassign company")
     }
   },
 
   moveCompany: async (assignmentId, newBoothIds, newDay) => {
-    const body: Record<string, unknown> = {}
-    if (newBoothIds) body.boothIds = newBoothIds
-    if (newDay !== undefined) body.day = newDay
-    const res = await authFetch(`/api/assignments/${assignmentId}/move`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    })
+    const snapshot = get().assignments
+    const original = snapshot.find((a) => a.id === assignmentId)
+    if (!original) return
 
-    if (res.ok) {
+    // Optimistic update
+    set((state) => ({
+      assignments: state.assignments.map((a) => {
+        if (a.id !== assignmentId) return a
+        return {
+          ...a,
+          ...(newBoothIds && { boothIds: newBoothIds }),
+          ...(newDay !== undefined && { day: newDay }),
+        }
+      }),
+    }))
+    try {
+      const body: Record<string, unknown> = {}
+      if (newBoothIds) body.boothIds = newBoothIds
+      if (newDay !== undefined) body.day = newDay
+      const res = await authFetch(`/api/assignments/${assignmentId}/move`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to move company")
+      }
       const updated: BoothAssignment = await res.json()
       set((state) => ({
         assignments: state.assignments.map((a) =>
           a.id === assignmentId ? updated : a
         ),
       }))
+    } catch (e) {
+      set({ assignments: snapshot })
+      toast.error(e instanceof Error ? e.message : "Failed to move company")
     }
   },
 
