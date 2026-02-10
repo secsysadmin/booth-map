@@ -1,0 +1,61 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  drafts    Draft[]
+  createdAt DateTime @default(now())
+}
+
+model Draft {
+  id          String            @id @default(uuid())
+  name        String
+  userId      String
+  user        User              @relation(fields: [userId], references: [id])
+  companies   Company[]
+  assignments BoothAssignment[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model Company {
+  id          String            @id @default(uuid())
+  name        String
+  days        Day[]
+  sponsorship Sponsorship       @default(BASIC)
+  draftId     String
+  draft       Draft             @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  assignments BoothAssignment[]
+}
+
+model BoothAssignment {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  draftId   String
+  draft     Draft   @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  boothIds  String[]
+  day       Day?
+
+  @@unique([companyId, draftId])
+}
+
+enum Sponsorship {
+  MAROON
+  DIAMOND
+  GOLD
+  SILVER
+  BASIC
+}
+
+enum Day {
+  WEDNESDAY
+  THURSDAY
+}
