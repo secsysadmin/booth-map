@@ -51,9 +51,8 @@ export default function LoginPage() {
 
     if (error) {
       toast.error(error.message)
-    } else if (isSignUp) {
-      toast.success("Account created! Check your email to confirm.")
     } else {
+      if (isSignUp) toast.success("Account created!")
       router.push("/dashboard")
     }
   }
@@ -106,7 +105,7 @@ export default function LoginPage() {
                 Already have an account?{" "}
                 <button
                   className="underline hover:text-foreground"
-                  onClick={() => setIsSignUp(false)}
+                  onClick={() => { setIsSignUp(false); setEmail(""); setPassword("") }}
                 >
                   Sign In
                 </button>
@@ -116,7 +115,7 @@ export default function LoginPage() {
                 Don&apos;t have an account?{" "}
                 <button
                   className="underline hover:text-foreground"
-                  onClick={() => setIsSignUp(true)}
+                  onClick={() => { setIsSignUp(true); setEmail(""); setPassword("") }}
                 >
                   Sign Up
                 </button>
