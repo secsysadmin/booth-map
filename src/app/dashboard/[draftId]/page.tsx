@@ -58,10 +58,12 @@ export default function EditorPage() {
   useEffect(() => {
     if (!loading && !user) {
       router.push("/")
-      return
     }
-    if (user) loadDraft()
-  }, [user, loading]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user, loading, router])
+
+  useEffect(() => {
+    if (user) loadDraft() // eslint-disable-line react-hooks/set-state-in-effect
+  }, [user, loadDraft])
 
   async function handleExport(day: Day) {
     const url = `/api/drafts/${draftId}/export?day=${day}`
@@ -135,10 +137,17 @@ export default function EditorPage() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => handleExport("WEDNESDAY")}>
-                Wednesday
+                Wednesday (CSV)
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleExport("THURSDAY")}>
-                Thursday
+                Thursday (CSV)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                const fn = useMapStore.getState().exportMapFn
+                if (fn) fn()
+                else toast.error("Map not ready")
+              }}>
+                Map (PNG)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

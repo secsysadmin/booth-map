@@ -40,6 +40,10 @@ interface MapStore {
   repositioning: boolean  // true when a selected company is being moved
   tooltip: { x: number; y: number; boothId: string; companyName: string; sponsorship: string; boothIds: string[] } | null
 
+  // Export
+  exportMapFn: (() => void) | null
+  setExportMapFn: (fn: (() => void) | null) => void
+
   // Filters
   sidebarFilter: SidebarFilter
 
@@ -88,6 +92,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
   selectedCompany: null,
   repositioning: false,
   tooltip: null,
+  exportMapFn: null,
 
   sidebarFilter: {
     search: "",
@@ -171,6 +176,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
   startRepositioning: (companyId) => set({ selectedCompany: companyId, repositioning: true, hoveredBooths: [], hoveredValid: true }),
   cancelRepositioning: () => set({ selectedCompany: null, repositioning: false, hoveredBooths: [], hoveredValid: true }),
   setTooltip: (tooltip) => set({ tooltip }),
+  setExportMapFn: (fn) => set({ exportMapFn: fn }),
   setSidebarFilter: (filter) =>
     set((state) => ({
       sidebarFilter: { ...state.sidebarFilter, ...filter },

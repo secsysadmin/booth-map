@@ -91,6 +91,52 @@ export function BoothMap() {
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [repositioning, cancelRepositioning])
 
+  // Register PNG export function
+  useEffect(() => {
+    const exportFn = () => {
+      const stage = stageRef.current
+      if (!stage) return
+
+      // Save current transform
+      const prevScale = { x: stage.scaleX(), y: stage.scaleY() }
+      const prevPos = { x: stage.x(), y: stage.y() }
+      const prevSize = { width: stage.width(), height: stage.height() }
+
+      // Set stage to fit full canvas
+      const padding = 20
+      const exportWidth = canvasDims.width + padding * 2
+      const exportHeight = canvasDims.height + padding * 2
+
+      stage.width(exportWidth)
+      stage.height(exportHeight)
+      stage.scaleX(1)
+      stage.scaleY(1)
+      stage.x(padding)
+      stage.y(padding)
+      stage.draw()
+
+      const dataUrl = stage.toDataURL({ pixelRatio: 2 })
+
+      // Restore
+      stage.width(prevSize.width)
+      stage.height(prevSize.height)
+      stage.scaleX(prevScale.x)
+      stage.scaleY(prevScale.y)
+      stage.x(prevPos.x)
+      stage.y(prevPos.y)
+      stage.draw()
+
+      // Download
+      const a = document.createElement("a")
+      a.href = dataUrl
+      a.download = "booth-map.png"
+      a.click()
+    }
+
+    useMapStore.getState().setExportMapFn(exportFn)
+    return () => useMapStore.getState().setExportMapFn(null)
+  }, [canvasDims.width, canvasDims.height])
+
   // Zoom with scroll wheel
   const handleWheel = useCallback(
     (e: Konva.KonvaEventObject<WheelEvent>) => {
