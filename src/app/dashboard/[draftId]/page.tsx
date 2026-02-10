@@ -70,9 +70,8 @@ export default function EditorPage() {
     if (user) loadDraft() // eslint-disable-line react-hooks/set-state-in-effect
   }, [user, loadDraft])
 
-  async function handleExport(day: Day) {
-    const url = `/api/drafts/${draftId}/export?day=${day}`
-    const dayLabel = day === "WEDNESDAY" ? "Wednesday" : "Thursday"
+  async function handleExportCSV() {
+    const url = `/api/drafts/${draftId}/export`
 
     const res = await apiFetch(url)
     if (res.ok) {
@@ -80,7 +79,7 @@ export default function EditorPage() {
       const downloadUrl = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = downloadUrl
-      a.download = `${draftName}-${dayLabel}.csv`
+      a.download = `${draftName}-Assignments.csv`
       a.click()
       URL.revokeObjectURL(downloadUrl)
       toast.success("Export downloaded")
@@ -141,11 +140,8 @@ export default function EditorPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleExport("WEDNESDAY")}>
-                Wednesday (CSV)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExport("THURSDAY")}>
-                Thursday (CSV)
+              <DropdownMenuItem onClick={handleExportCSV}>
+                Assignments (CSV)
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => {
                 const fn = useMapStore.getState().exportMapFn

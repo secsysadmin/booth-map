@@ -24,31 +24,52 @@ export async function GET(
   if (!draft)
     return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  const day = dayFilter || "WEDNESDAY"
+  // Format booth IDs: "G-14" → "G14", sorted by row then number
+  function formatBoothIds(boothIds: string[]) {
+    return [...boothIds]
+      .sort((a, b) => {
+        const [rowA, numA] = a.split("-")
+        const [rowB, numB] = b.split("-")
+        if (rowA !== rowB) return rowA.localeCompare(rowB)
+        return parseInt(numA) - parseInt(numB)
+      })
+      .map((id) => id.replace("-", ""))
+      .join(", ")
+  }
 
-  const dayAssignments = draft.assignments.filter(
-    (a) => a.day === null || a.day === day
-  )
+  // Format days for display
+  function formatDays(day: string | null, companyDays: string[]) {
+    if (day === null) return "Wednesday Thursday"
+    if (day === "WEDNESDAY") return "Wednesday"
+    if (day === "THURSDAY") return "Thursday"
+    return companyDays.map((d) => d === "WEDNESDAY" ? "Wednesday" : "Thursday").join(" ")
+  }
 
-  const rows = dayAssignments
+  const rows = draft.assignments
     .map((a) => ({
-      "Company Name": a.company.name,
-      "Sponsorship": a.company.sponsorship,
-      "Booth Number(s)": [...a.boothIds]
-        .sort((x, y) => parseInt(x.split("-")[1]) - parseInt(y.split("-")[1]))
-        .join(", "),
+      "Name": a.company.name,
+      "DAYS REGISTERED": formatDays(a.day, a.company.days),
+      "ASSIGNMENT": formatBoothIds(a.boothIds),
     }))
-    .sort((a, b) => a["Company Name"].localeCompare(b["Company Name"]))
+    .sort((a, b) => {
+      // Sort by assignment (row letter first, then number)
+      const aFirst = a["ASSIGNMENT"].split(",")[0].trim()
+      const bFirst = b["ASSIGNMENT"].split(",")[0].trim()
+      const aRow = aFirst.match(/^([A-Q])/)?.[1] || ""
+      const bRow = bFirst.match(/^([A-Q])/)?.[1] || ""
+      if (aRow !== bRow) return aRow.localeCompare(bRow)
+      const aNum = parseInt(aFirst.slice(1)) || 0
+      const bNum = parseInt(bFirst.slice(1)) || 0
+      return aNum - bNum
+    })
 
   const sheet = XLSX.utils.json_to_sheet(rows)
   const csv = XLSX.utils.sheet_to_csv(sheet)
 
-  const dayLabel = day === "WEDNESDAY" ? "Wednesday" : "Thursday"
-
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv",
-      "Content-Disposition": `attachment; filename="${draft.name}-${dayLabel}.csv"`,
+      "Content-Disposition": `attachment; filename="${draft.name}-Assignments.csv"`,
     },
   })
 }
