@@ -78,9 +78,11 @@ export function CompanySidebar() {
   }, [filteredCompanies])
 
   const totalFiltered = filteredCompanies.length
-  const totalUnassigned = filteredCompanies.filter(
-    (c) => !assignedCompanyIds.has(c.id)
+  const totalAssigned = filteredCompanies.filter(
+    (c) => assignedCompanyIds.has(c.id)
   ).length
+  const totalUnassigned = totalFiltered - totalAssigned
+  const pct = totalFiltered > 0 ? Math.round((totalAssigned / totalFiltered) * 100) : 0
 
   return (
     <div className="flex w-72 flex-col overflow-hidden border-r bg-white">
@@ -132,7 +134,7 @@ export function CompanySidebar() {
           </Select>
         </div>
         <p className="text-xs text-muted-foreground">
-          {totalFiltered} companies ({totalUnassigned} unassigned)
+          {totalAssigned}/{totalFiltered} assigned ({pct}%) &middot; {totalUnassigned} remaining
         </p>
       </div>
 

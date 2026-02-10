@@ -13,7 +13,9 @@ export async function PUT(
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { id } = await params
-  const { boothIds } = await req.json()
+  const body = await req.json()
+  const boothIds = body.boothIds
+  const dayUpdate = body.day !== undefined ? body.day : undefined // null = both, "WEDNESDAY"/"THURSDAY" = single
 
   // Verify assignment belongs to user's draft
   const assignment = await prisma.boothAssignment.findUnique({
@@ -32,15 +34,18 @@ export async function PUT(
     },
   })
 
+  const effectiveDay = dayUpdate !== undefined ? dayUpdate : assignment.day
+  const effectiveBooths = boothIds || assignment.boothIds
+
   for (const existing of existingAssignments) {
     const daysOverlap =
       existing.day === null ||
-      assignment.day === null ||
-      existing.day === assignment.day
+      effectiveDay === null ||
+      existing.day === effectiveDay
 
     if (daysOverlap) {
       const conflict = existing.boothIds.some((bid: string) =>
-        boothIds.includes(bid)
+        effectiveBooths.includes(bid)
       )
       if (conflict) {
         return NextResponse.json(
@@ -51,9 +56,13 @@ export async function PUT(
     }
   }
 
+  const data: Record<string, unknown> = {}
+  if (boothIds) data.boothIds = effectiveBooths
+  if (dayUpdate !== undefined) data.day = effectiveDay
+
   const updated = await prisma.boothAssignment.update({
     where: { id },
-    data: { boothIds },
+    data,
   })
 
   return NextResponse.json(updated)

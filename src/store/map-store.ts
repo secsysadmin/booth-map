@@ -52,12 +52,12 @@ interface MapStore {
   setCompanies: (companies: Company[]) => void
   setAssignments: (assignments: BoothAssignment[]) => void
   addCompany: (company: Company) => void
-  updateCompany: (id: string, updates: Partial<Company>) => void
+  updateCompany: (id: string, updates: Partial<Company>) => Promise<void>
 
   // Assignment actions
   assignCompany: (companyId: string, boothIds: string[], day: Day | null) => Promise<void>
   unassignCompany: (companyId: string) => Promise<void>
-  moveCompany: (assignmentId: string, newBoothIds: string[]) => Promise<void>
+  moveCompany: (assignmentId: string, newBoothIds?: string[], newDay?: Day | null) => Promise<void>
 
   // UI actions
   setActiveDay: (day: Day) => void
@@ -108,12 +108,20 @@ export const useMapStore = create<MapStore>((set, get) => ({
   addCompany: (company) =>
     set((state) => ({ companies: [...state.companies, company] })),
 
-  updateCompany: (id, updates) =>
-    set((state) => ({
-      companies: state.companies.map((c) =>
-        c.id === id ? { ...c, ...updates } : c
-      ),
-    })),
+  updateCompany: async (id, updates) => {
+    const res = await authFetch(`/api/companies/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(updates),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      set((state) => ({
+        companies: state.companies.map((c) =>
+          c.id === id ? { ...c, ...updated } : c
+        ),
+      }))
+    }
+  },
 
   // Assignment actions
   assignCompany: async (companyId, boothIds, day) => {
@@ -151,10 +159,13 @@ export const useMapStore = create<MapStore>((set, get) => ({
     }
   },
 
-  moveCompany: async (assignmentId, newBoothIds) => {
+  moveCompany: async (assignmentId, newBoothIds, newDay) => {
+    const body: Record<string, unknown> = {}
+    if (newBoothIds) body.boothIds = newBoothIds
+    if (newDay !== undefined) body.day = newDay
     const res = await authFetch(`/api/assignments/${assignmentId}/move`, {
       method: "PUT",
-      body: JSON.stringify({ boothIds: newBoothIds }),
+      body: JSON.stringify(body),
     })
 
     if (res.ok) {
