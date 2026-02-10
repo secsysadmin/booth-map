@@ -55,5 +55,25 @@ export function useAuth() {
     return session?.access_token ?? null
   }, [supabase])
 
-  return { user, loading, signIn, signUp, signOut, getToken }
+  const resetPassword = useCallback(
+    async (email: string) => {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+      return { error }
+    },
+    [supabase]
+  )
+
+  const updatePassword = useCallback(
+    async (newPassword: string) => {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      })
+      return { error }
+    },
+    [supabase]
+  )
+
+  return { user, loading, signIn, signUp, signOut, getToken, resetPassword, updatePassword }
 }

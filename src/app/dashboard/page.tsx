@@ -27,7 +27,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
-import { Plus, MoreVertical, Copy, Trash2, Pencil } from "lucide-react"
+import { Label } from "@/components/ui/label"
+import { Plus, MoreVertical, Copy, Trash2, Pencil, KeyRound } from "lucide-react"
 
 interface DraftSummary {
   id: string
@@ -38,7 +39,7 @@ interface DraftSummary {
 }
 
 export default function DashboardPage() {
-  const { user, loading, signOut } = useAuth()
+  const { user, loading, signOut, updatePassword } = useAuth()
   const { apiFetch } = useApi()
   const router = useRouter()
   const [drafts, setDrafts] = useState<DraftSummary[]>([])
@@ -46,6 +47,10 @@ export default function DashboardPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [renameId, setRenameId] = useState<string | null>(null)
   const [renameName, setRenameName] = useState("")
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [changingPassword, setChangingPassword] = useState(false)
 
   useEffect(() => {
     if (!loading && !user) {
@@ -95,6 +100,24 @@ export default function DashboardPage() {
     }
   }
 
+  async function changePassword() {
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match")
+      return
+    }
+    setChangingPassword(true)
+    const { error } = await updatePassword(newPassword)
+    setChangingPassword(false)
+    if (error) {
+      toast.error(error.message)
+    } else {
+      toast.success("Password updated")
+      setPasswordOpen(false)
+      setNewPassword("")
+      setConfirmPassword("")
+    }
+  }
+
   async function renameDraft() {
     if (!renameId) return
     const res = await apiFetch(`/api/drafts/${renameId}`, {
@@ -123,6 +146,54 @@ export default function DashboardPage() {
           <h1 className="text-xl font-semibold">Career Fair Booth Map</h1>
           <div className="flex items-center gap-4">
             <span className="text-sm text-muted-foreground">{user.email}</span>
+            <Dialog open={passwordOpen} onOpenChange={(open) => {
+              setPasswordOpen(open)
+              if (!open) { setNewPassword(""); setConfirmPassword("") }
+            }}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <KeyRound className="mr-2 h-4 w-4" />
+                  Change Password
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Change Password</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-password">New Password</Label>
+                    <Input
+                      id="new-password"
+                      type="password"
+                      placeholder="New password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      minLength={6}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm-password">Confirm Password</Label>
+                    <Input
+                      id="confirm-password"
+                      type="password"
+                      placeholder="Confirm password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && changePassword()}
+                      minLength={6}
+                    />
+                  </div>
+                  <Button
+                    className="w-full"
+                    onClick={changePassword}
+                    disabled={changingPassword || !newPassword || !confirmPassword}
+                  >
+                    {changingPassword ? "Updating..." : "Update Password"}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
             <Button variant="outline" size="sm" onClick={signOut}>
               Sign Out
             </Button>

@@ -6,21 +6,15 @@ import { useAuth } from "@/hooks/use-auth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { toast } from "sonner"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [isSignUp, setIsSignUp] = useState(false)
+  const [isForgot, setIsForgot] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const { user, loading, signIn, signUp } = useAuth()
+  const { user, loading, signIn, signUp, resetPassword } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
@@ -43,6 +37,18 @@ export default function LoginPage() {
     e.preventDefault()
     setSubmitting(true)
 
+    if (isForgot) {
+      const { error } = await resetPassword(email)
+      setSubmitting(false)
+      if (error) {
+        toast.error(error.message)
+      } else {
+        toast.success("Check your email for a password reset link")
+        setIsForgot(false)
+      }
+      return
+    }
+
     const { error } = isSignUp
       ? await signUp(email, password)
       : await signIn(email, password)
@@ -58,18 +64,39 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Career Fair Booth Map</CardTitle>
-          <CardDescription>
-            {isSignUp ? "Create an account" : "Sign in to manage your booth assignments"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-neutral-50 px-4">
+      <div className="w-full max-w-[360px]">
+        {/* Icon + Title */}
+        <div className="mb-8 flex flex-col items-center text-center">
+          <div className="mb-4 grid h-10 w-10 grid-cols-2 grid-rows-2 gap-[3px]">
+            <div className="rounded-[4px] bg-neutral-900" />
+            <div className="rounded-[4px] bg-neutral-300" />
+            <div className="rounded-[4px] bg-neutral-300" />
+            <div className="rounded-[4px] bg-neutral-900" />
+          </div>
+          <h1 className="text-[18px] font-semibold tracking-[-0.01em] text-neutral-900">
+            {isForgot
+              ? "Reset your password"
+              : isSignUp
+                ? "Create your account"
+                : "Sign in to Booth Map"}
+          </h1>
+          <p className="mt-1 text-[13px] text-neutral-400">
+            {isForgot
+              ? "We\u2019ll email you a reset link"
+              : isSignUp
+                ? "Student Engineers\u2019 Council"
+                : "Student Engineers\u2019 Council"}
+          </p>
+        </div>
+
+        {/* Card */}
+        <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-[13px] text-neutral-600">
+                Email
+              </Label>
               <Input
                 id="email"
                 type="email"
@@ -77,53 +104,85 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                className="h-10"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={submitting}>
+
+            {!isForgot && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password" className="text-[13px] text-neutral-600">
+                    Password
+                  </Label>
+                  {!isSignUp && (
+                    <button
+                      type="button"
+                      className="text-[12px] text-neutral-400 hover:text-neutral-600 transition-colors"
+                      onClick={() => { setIsForgot(true); setPassword("") }}
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="h-10"
+                />
+              </div>
+            )}
+
+            <Button type="submit" className="h-10 w-full text-[13px]" disabled={submitting}>
               {submitting
                 ? "Loading..."
-                : isSignUp
-                  ? "Sign Up"
-                  : "Sign In"}
+                : isForgot
+                  ? "Send Reset Link"
+                  : isSignUp
+                    ? "Create Account"
+                    : "Continue"}
             </Button>
           </form>
-          <div className="mt-4 text-center text-sm text-muted-foreground">
-            {isSignUp ? (
-              <>
-                Already have an account?{" "}
-                <button
-                  className="underline hover:text-foreground"
-                  onClick={() => { setIsSignUp(false); setEmail(""); setPassword("") }}
-                >
-                  Sign In
-                </button>
-              </>
-            ) : (
-              <>
-                Don&apos;t have an account?{" "}
-                <button
-                  className="underline hover:text-foreground"
-                  onClick={() => { setIsSignUp(true); setEmail(""); setPassword("") }}
-                >
-                  Sign Up
-                </button>
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        {/* Footer */}
+        <p className="mt-5 text-center text-[13px] text-neutral-400">
+          {isForgot ? (
+            <>
+              Back to{" "}
+              <button
+                className="text-neutral-600 hover:text-neutral-900 transition-colors"
+                onClick={() => { setIsForgot(false); setEmail(""); setPassword("") }}
+              >
+                Sign In
+              </button>
+            </>
+          ) : isSignUp ? (
+            <>
+              Have an account?{" "}
+              <button
+                className="text-neutral-600 hover:text-neutral-900 transition-colors"
+                onClick={() => { setIsSignUp(false); setEmail(""); setPassword("") }}
+              >
+                Sign In
+              </button>
+            </>
+          ) : (
+            <>
+              No account?{" "}
+              <button
+                className="text-neutral-600 hover:text-neutral-900 transition-colors"
+                onClick={() => { setIsSignUp(true); setEmail(""); setPassword("") }}
+              >
+                Sign Up
+              </button>
+            </>
+          )}
+        </p>
+      </div>
     </div>
   )
 }
