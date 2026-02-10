@@ -43,6 +43,11 @@ export default function EditorPage() {
   } = useMapStore()
 
   const loadDraft = useCallback(async () => {
+
+    setCompanies([])
+    setAssignments([])
+    setDraftName("")
+
     const res = await apiFetch(`/api/drafts/${draftId}`)
     if (res.ok) {
       const draft = await res.json()
