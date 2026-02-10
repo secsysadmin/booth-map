@@ -24,10 +24,10 @@ export const SPONSORSHIP_CONFIG: Record<
 // Text colors for readability on each sponsorship background
 export const SPONSORSHIP_TEXT_COLOR: Record<Sponsorship, string> = {
   MAROON: "#FFFFFF",
-  DIAMOND: "#1a1a1a",
-  GOLD: "#1a1a1a",
-  SILVER: "#1a1a1a",
-  BASIC: "#1a1a1a",
+  DIAMOND: "#0f2b3d",
+  GOLD: "#3d2e00",
+  SILVER: "#2a2a2a",
+  BASIC: "#2a2a2a",
 }
 
 // Row letters from left (Q) to right (A) as rendered on screen

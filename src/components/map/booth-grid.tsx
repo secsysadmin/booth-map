@@ -276,15 +276,52 @@ export function BoothGrid() {
         const textColor =
           SPONSORSHIP_TEXT_COLOR[company.sponsorship] || "#1a1a1a"
 
+        const isMultiBooth = label.height > BOOTH_HEIGHT + BOOTH_GAP
+
+        if (isMultiBooth) {
+          // Vertical text: rotated -90 so it reads bottom-to-top
+          const availableLength = label.height - 4
+          const maxFontSize = 16
+          const minFontSize = 8
+          // Estimate: each char ~0.6x font size wide
+          let fontSize = maxFontSize
+          const estimatedWidth = label.name.length * fontSize * 0.55
+          if (estimatedWidth > availableLength) {
+            fontSize = Math.max(minFontSize, Math.floor(availableLength / (label.name.length * 0.55)))
+          }
+
+          return (
+            <Text
+              key={`company-label-${label.companyId}`}
+              x={label.x + label.width / 2 + fontSize / 2}
+              y={label.y + label.height - 2}
+              width={label.height - 4}
+              text={label.name}
+              fontSize={fontSize}
+              fontFamily="Inter, sans-serif"
+              fontStyle="bold"
+              fill={textColor}
+              align="center"
+              rotation={-90}
+              ellipsis
+              wrap="none"
+              listening={false}
+            />
+          )
+        }
+
+        // Single booth: horizontal text
         return (
           <Text
             key={`company-label-${label.companyId}`}
             x={label.x + 2}
-            y={label.y + label.height / 2 - 5}
+            y={label.y + label.height / 2 - 6}
             width={label.width - 4}
             height={label.height}
             text={label.name}
-            fontSize={8}
+            fontSize={10}
+            fontFamily="Inter, sans-serif"
+            fontStyle="bold"
             fill={textColor}
             align="center"
             verticalAlign="middle"
@@ -304,9 +341,9 @@ export function BoothGrid() {
         .map((label) => (
           <Text
             key={`both-${label.companyId}`}
-            x={label.x + label.width - 18}
+            x={label.x + label.width - 22}
             y={label.y + 2}
-            text="W+T"
+            text="W/TH"
             fontSize={7}
             fill="#666"
             fontStyle="bold"

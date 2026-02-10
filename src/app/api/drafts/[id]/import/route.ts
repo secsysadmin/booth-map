@@ -15,7 +15,7 @@ const VALID_SPONSORSHIPS: Sponsorship[] = [
 
 function normalizeDays(value: string): Day[] {
   const v = value.trim().toUpperCase()
-  if (v === "BOTH" || v === "WEDNESDAY AND THURSDAY" || v === "WED & THU" || v === "W+T") {
+  if (v === "BOTH" || v === "WEDNESDAY AND THURSDAY" || v === "WED & THU" || v === "W+T" || v === "W/TH") {
     return ["WEDNESDAY", "THURSDAY"]
   }
   if (v === "WEDNESDAY" || v === "WED" || v === "W") return ["WEDNESDAY"]
