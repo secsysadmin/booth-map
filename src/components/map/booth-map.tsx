@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useCallback, useState, useEffect } from "react"
+import { useRef, useCallback, useState, useEffect, useLayoutEffect } from "react"
 import { Stage, Layer } from "react-konva"
 import { useMapStore } from "@/store/map-store"
 import { getCanvasDimensions } from "@/lib/booth-geometry"
@@ -504,8 +504,35 @@ function BoothContextMenu({
   onClose: () => void
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: x, top: y })
   const { companies, updateCompany, unassignCompany, moveCompany, startRepositioning, getAssignmentForCompany } = useMapStore()
   const company = companies.find((c) => c.id === companyId)
+
+  // Adjust position so menu stays within the container
+  useLayoutEffect(() => {
+    const menu = menuRef.current
+    const container = menu?.parentElement
+    if (!menu || !container) return
+
+    const menuRect = menu.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const pad = 4
+
+    let left = x
+    let top = y
+
+    // If menu overflows right edge, flip to left side of cursor
+    if (left + menuRect.width > containerRect.width - pad) {
+      left = Math.max(pad, containerRect.width - menuRect.width - pad)
+    }
+
+    // If menu overflows bottom edge, flip upward
+    if (top + menuRect.height > containerRect.height - pad) {
+      top = Math.max(pad, containerRect.height - menuRect.height - pad)
+    }
+
+    setPos({ left, top })
+  }, [x, y])
 
   // Close on outside click
   useEffect(() => {
@@ -574,7 +601,7 @@ function BoothContextMenu({
     <div
       ref={menuRef}
       className="absolute z-50 min-w-[180px] rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-      style={{ left: x, top: y }}
+      style={{ left: pos.left, top: pos.top }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">

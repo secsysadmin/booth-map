@@ -354,18 +354,22 @@ export function BoothGrid() {
           const a = assignments.find((a) => a.companyId === l.companyId)
           return a?.day === null
         })
-        .map((label) => (
-          <Text
-            key={`both-${label.companyId}`}
-            x={label.x + label.width - 22}
-            y={label.y + 2}
-            text="W/TH"
-            fontSize={7}
-            fill="#666"
-            fontStyle="bold"
-            listening={false}
-          />
-        ))}
+        .map((label) => {
+          const company = companies.find((c) => c.id === label.companyId)
+          const color = company ? SPONSORSHIP_TEXT_COLOR[company.sponsorship] : "#666"
+          return (
+            <Text
+              key={`both-${label.companyId}`}
+              x={label.x + label.width - 22}
+              y={label.y + 2}
+              text="W/TH"
+              fontSize={7}
+              fill={color}
+              fontStyle="bold"
+              listening={false}
+            />
+          )
+        })}
     </>
   )
 }

@@ -12,20 +12,37 @@ const VALID_SPONSORSHIPS: Sponsorship[] = [
   "BASIC",
 ]
 
-function normalizeDays(value: string): Day[] {
-  const v = value.trim().toUpperCase()
-  if (v === "BOTH" || v === "WEDNESDAY AND THURSDAY" || v === "WED & THU" || v === "W+T" || v === "W/TH") {
-    return ["WEDNESDAY", "THURSDAY"]
-  }
-  if (v === "WEDNESDAY" || v === "WED" || v === "W") return ["WEDNESDAY"]
-  if (v === "THURSDAY" || v === "THU" || v === "T" || v === "THURS") return ["THURSDAY"]
-  return ["WEDNESDAY", "THURSDAY"] // default to both
-}
+/**
+ * Parse the sponsorship column which contains tier + day info.
+ * Formats:
+ *   "Basic One-Day: Wednesday, January 28th [$1000.00]"
+ *   "Gold Two-Day [$5500.00]"
+ *   "Maroon Two-Day [$12500.00]"
+ *   "Diamond One-Day: Thursday, January 29th [$4000.00]"
+ */
+function parseSponsorshipColumn(value: string): { sponsorship: Sponsorship; days: Day[] } | null {
+  const v = value.trim()
 
-function normalizeSponsorship(value: string): Sponsorship | null {
-  const v = value.trim().toUpperCase()
-  if (VALID_SPONSORSHIPS.includes(v as Sponsorship)) return v as Sponsorship
-  return null
+  // Extract the tier name (first word before "One-Day" or "Two-Day")
+  const tierMatch = v.match(/^(\w+)\s+(One-Day|Two-Day)/i)
+  if (!tierMatch) return null
+
+  const tierRaw = tierMatch[1].toUpperCase()
+  if (!VALID_SPONSORSHIPS.includes(tierRaw as Sponsorship)) return null
+  const sponsorship = tierRaw as Sponsorship
+
+  const isTwoDay = tierMatch[2].toLowerCase() === "two-day"
+
+  if (isTwoDay) {
+    return { sponsorship, days: ["WEDNESDAY", "THURSDAY"] }
+  }
+
+  // One-Day: extract which day from the rest of the string
+  if (/wednesday/i.test(v)) return { sponsorship, days: ["WEDNESDAY"] }
+  if (/thursday/i.test(v)) return { sponsorship, days: ["THURSDAY"] }
+
+  // Fallback: one-day but can't determine which — default to both
+  return { sponsorship, days: ["WEDNESDAY", "THURSDAY"] }
 }
 
 export async function POST(
@@ -49,55 +66,56 @@ export async function POST(
   if (!file)
     return NextResponse.json({ error: "No file provided" }, { status: 400 })
 
+  console.log("[import] Starting import for draft:", id)
+  console.log("[import] File:", file.name, `(${file.size} bytes)`)
+
   const buffer = Buffer.from(await file.arrayBuffer())
   const workbook = XLSX.read(buffer, { type: "buffer" })
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
-  const rows = XLSX.utils.sheet_to_json<Record<string, string>>(sheet)
+  // Parse as array-of-arrays to support headerless CSVs (positional columns)
+  const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 })
+
+  console.log("[import] Total rows:", rows.length)
 
   const errors: string[] = []
   const companies: { name: string; days: Day[]; sponsorship: Sponsorship }[] =
     []
 
-  for (let i = 0; i < rows.length; i++) {
+  // Detect if first row is a header (check if col B looks like a sponsorship value)
+  let startIdx = 0
+  if (rows.length > 0) {
+    const firstSponsor = String(rows[0][1] || "")
+    if (!parseSponsorshipColumn(firstSponsor)) {
+      console.log("[import] Header row detected, skipping:", rows[0].slice(0, 3).join(" | "))
+      startIdx = 1 // skip header row
+    }
+  }
+
+  for (let i = startIdx; i < rows.length; i++) {
     const row = rows[i]
-    const rowNum = i + 2 // 1-indexed + header
+    const rowNum = i + 1
 
-    // Find name column (case-insensitive)
-    const nameKey = Object.keys(row).find((k) =>
-      k.toLowerCase().includes("name")
-    )
-    const dayKey = Object.keys(row).find(
-      (k) =>
-        k.toLowerCase().includes("day") ||
-        k.toLowerCase().includes("days")
-    )
-    const sponsorKey = Object.keys(row).find(
-      (k) =>
-        k.toLowerCase().includes("sponsor") ||
-        k.toLowerCase().includes("tier")
-    )
-
-    const name = nameKey ? row[nameKey]?.trim() : ""
+    const name = String(row[0] || "").trim()
     if (!name) {
+      console.log(`[import] Row ${rowNum}: skipped (no name)`)
       errors.push(`Row ${rowNum}: missing company name`)
       continue
     }
 
-    const days = dayKey ? normalizeDays(row[dayKey] || "") : ["WEDNESDAY" as Day, "THURSDAY" as Day]
+    const sponsorshipRaw = String(row[1] || "").trim()
+    const parsed = parseSponsorshipColumn(sponsorshipRaw)
 
-    const sponsorship = sponsorKey
-      ? normalizeSponsorship(row[sponsorKey] || "")
-      : "BASIC" as Sponsorship
-
-    if (!sponsorship) {
-      errors.push(
-        `Row ${rowNum}: unknown sponsorship tier "${sponsorKey ? row[sponsorKey] : ""}"`
-      )
+    if (!parsed) {
+      console.error(`[import] Row ${rowNum}: failed to parse "${sponsorshipRaw}"`)
+      errors.push(`Row ${rowNum}: could not parse sponsorship "${sponsorshipRaw}"`)
       continue
     }
 
-    companies.push({ name, days, sponsorship })
+    console.log(`[import] Row ${rowNum}: ${name} → ${parsed.sponsorship} [${parsed.days.join(", ")}]`)
+    companies.push({ name, days: parsed.days, sponsorship: parsed.sponsorship })
   }
+
+  console.log("[import] Parsed", companies.length, "companies,", errors.length, "errors")
 
   // Upsert companies
   let created = 0
@@ -121,6 +139,8 @@ export async function POST(
       created++
     }
   }
+
+  console.log("[import] Done — created:", created, "updated:", updated, "errors:", errors.length)
 
   return NextResponse.json({
     success: true,

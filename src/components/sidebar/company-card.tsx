@@ -96,7 +96,7 @@ export function CompanyCard({ company, isAssigned }: CompanyCardProps) {
       onClick={() =>
         setSelectedCompany(isSelected ? null : company.id)
       }
-      className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm transition-colors ${
+      className={`flex min-w-0 items-center gap-2 rounded-md border px-2 py-1.5 text-sm transition-colors ${
         isAssigned
           ? "border-transparent bg-muted/50 text-muted-foreground"
           : "cursor-grab border-border bg-white hover:bg-gray-50 active:cursor-grabbing"
@@ -108,7 +108,7 @@ export function CompanyCard({ company, isAssigned }: CompanyCardProps) {
       <span className="flex-1 truncate text-xs font-medium">
         {company.name}
       </span>
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         {company.hasQueue && (
           <Badge variant="outline" className="h-4 px-1 text-[10px] border-blue-400 text-blue-600">
             Q
