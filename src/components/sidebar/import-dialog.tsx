@@ -73,7 +73,7 @@ export function ImportDialog({
         </DialogHeader>
         <div className="space-y-4 pt-2">
           <p className="text-sm text-muted-foreground">
-            Upload an .xlsx or .csv file with columns: Name, Day(s), Sponsorship
+            Upload an .xlsx or .csv file with columns: Name, Sponsorship, Day(s)
           </p>
 
           <input
