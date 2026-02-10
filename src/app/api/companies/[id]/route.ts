@@ -30,6 +30,7 @@ export async function PUT(
       name: updates.name,
       days: updates.days,
       sponsorship: updates.sponsorship,
+      ...(updates.hasQueue !== undefined && { hasQueue: updates.hasQueue }),
     },
   })
 

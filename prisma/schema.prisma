@@ -30,6 +30,7 @@ model Company {
   name        String
   days        Day[]
   sponsorship Sponsorship       @default(BASIC)
+  hasQueue    Boolean           @default(false)
   draftId     String
   draft       Draft             @relation(fields: [draftId], references: [id], onDelete: Cascade)
   assignments BoothAssignment[]

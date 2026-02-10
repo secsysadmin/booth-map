@@ -6,6 +6,7 @@ export interface Company {
   name: string
   days: Day[]
   sponsorship: Sponsorship
+  hasQueue: boolean
   draftId: string
 }
 
