@@ -1,8 +1,9 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useMapStore } from "@/store/map-store"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -15,7 +16,8 @@ import { Separator } from "@/components/ui/separator"
 import { CompanyCard } from "./company-card"
 import { SPONSORSHIP_CONFIG } from "@/lib/constants"
 import type { Company, Sponsorship } from "@/types"
-import { Search } from "lucide-react"
+import { Search, XCircle } from "lucide-react"
+import { toast } from "sonner"
 
 const TIER_ORDER: Sponsorship[] = ["MAROON", "DIAMOND", "GOLD", "SILVER", "BASIC"]
 
@@ -26,7 +28,9 @@ export function CompanySidebar() {
     activeDay,
     sidebarFilter,
     setSidebarFilter,
+    unassignAll,
   } = useMapStore()
+  const [confirmingUnassignAll, setConfirmingUnassignAll] = useState(false)
 
   const assignedCompanyIds = useMemo(
     () => new Set(assignments.map((a) => a.companyId)),
@@ -133,9 +137,51 @@ export function CompanySidebar() {
             </SelectContent>
           </Select>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {totalAssigned}/{totalFiltered} assigned ({pct}%) &middot; {totalUnassigned} remaining
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">
+            {totalAssigned}/{totalFiltered} assigned ({pct}%) &middot; {totalUnassigned} remaining
+          </p>
+          {assignments.length > 0 && (
+            confirmingUnassignAll ? (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={async () => {
+                    try {
+                      await unassignAll()
+                      toast.success("All assignments cleared")
+                    } catch {
+                      // Store already showed error toast
+                    }
+                    setConfirmingUnassignAll(false)
+                  }}
+                >
+                  Confirm
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => setConfirmingUnassignAll(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-2 text-[10px] text-muted-foreground hover:text-destructive"
+                onClick={() => setConfirmingUnassignAll(true)}
+              >
+                <XCircle className="h-3 w-3" />
+                Unassign All
+              </Button>
+            )
+          )}
+        </div>
       </div>
 
       <Separator />

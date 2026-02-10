@@ -44,6 +44,7 @@ interface MapStore {
   // Assignment actions
   assignCompany: (companyId: string, boothIds: string[], day: Day | null) => Promise<void>
   unassignCompany: (companyId: string) => Promise<void>
+  unassignAll: () => Promise<void>
   moveCompany: (assignmentId: string, newBoothIds?: string[], newDay?: Day | null) => Promise<void>
 
   // UI actions
@@ -193,6 +194,29 @@ export const useMapStore = create<MapStore>((set, get) => ({
         assignments: [...state.assignments, assignment],
       }))
       toast.error(e instanceof Error ? e.message : "Failed to unassign company")
+      throw e
+    }
+  },
+
+  unassignAll: async () => {
+    const { draftId, assignments } = get()
+    if (!draftId || assignments.length === 0) return
+
+    const snapshot = assignments
+    // Optimistic update
+    set({ assignments: [], selectedCompany: null })
+    try {
+      const res = await authFetch("/api/assignments", {
+        method: "DELETE",
+        body: JSON.stringify({ draftId }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to unassign all")
+      }
+    } catch (e) {
+      set({ assignments: snapshot })
+      toast.error(e instanceof Error ? e.message : "Failed to unassign all")
       throw e
     }
   },

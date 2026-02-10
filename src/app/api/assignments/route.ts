@@ -52,3 +52,22 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json(assignment, { status: 201 })
 }
+
+export async function DELETE(req: NextRequest) {
+  const user = await getAuthUser(req)
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { draftId } = await req.json()
+
+  const draft = await prisma.draft.findFirst({
+    where: { id: draftId, userId: user.id },
+  })
+  if (!draft)
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+  const { count } = await prisma.boothAssignment.deleteMany({
+    where: { draftId },
+  })
+
+  return NextResponse.json({ success: true, deleted: count })
+}
