@@ -48,10 +48,6 @@ export function BoothMap() {
     selectedCompany,
     cancelRepositioning,
     unassignCompany,
-    moveCompany,
-    updateCompany,
-    companies,
-    startRepositioning,
     getAssignmentForCompany,
   } = useMapStore()
 
@@ -247,17 +243,18 @@ export function BoothMap() {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (!repositioning || !selectedCompany) return
+      const { repositioning: repo, selectedCompany: sc } = useMapStore.getState()
+      if (!repo || !sc) return
 
       const coords = { x: e.clientX, y: e.clientY }
 
       if (repoRafRef.current) return
       repoRafRef.current = requestAnimationFrame(() => {
         repoRafRef.current = null
-        const { selectedCompany: sc, repositioning: repo } = useMapStore.getState()
-        if (!sc || !repo) return
+        const state = useMapStore.getState()
+        if (!state.selectedCompany || !state.repositioning) return
 
-        const company = companies.find((c) => c.id === sc)
+        const company = state.companies.find((c) => c.id === state.selectedCompany)
         if (!company) return
 
         const canvasPos = pageToCanvas(coords.x, coords.y)
@@ -274,8 +271,8 @@ export function BoothMap() {
         const boothCount = SPONSORSHIP_CONFIG[company.sponsorship].booths
 
         // Get occupied, excluding current company's booths
-        const occupied = useMapStore.getState().getOccupiedBoothIds(activeDayRef.current)
-        const assignment = useMapStore.getState().getAssignmentForCompany(sc)
+        const occupied = state.getOccupiedBoothIds(activeDayRef.current)
+        const assignment = state.getAssignmentForCompany(state.selectedCompany)
         if (assignment) {
           for (const bid of assignment.boothIds) {
             occupied.delete(bid)
@@ -301,25 +298,32 @@ export function BoothMap() {
         }
       })
     },
-    [repositioning, selectedCompany, companies, setHoveredBooths]
+    [setHoveredBooths]
   )
 
-  // Click to place during repositioning
+  // Click to place during repositioning or new placement
   const handleCanvasClick = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>) => {
-      if (!repositioning || !selectedCompany) return
+    (_e: Konva.KonvaEventObject<MouseEvent>) => {
+      const state = useMapStore.getState()
+      if (!state.repositioning || !state.selectedCompany) return
+      if (!state.hoveredValid || state.hoveredBooths.length === 0) return
 
-      const { hoveredBooths, hoveredValid } = useMapStore.getState()
-      if (!hoveredValid || hoveredBooths.length === 0) return
-
-      const assignment = getAssignmentForCompany(selectedCompany)
-      if (!assignment) return
-
-      moveCompany(assignment.id, hoveredBooths).catch(() => {})
-      cancelRepositioning()
+      const assignment = state.getAssignmentForCompany(state.selectedCompany)
+      if (assignment) {
+        // Moving existing assignment
+        state.moveCompany(assignment.id, state.hoveredBooths).catch(() => {})
+      } else {
+        // New placement from sidebar click
+        const company = state.companies.find((c) => c.id === state.selectedCompany)
+        if (!company) return
+        const isBothDays = company.days.includes("WEDNESDAY") && company.days.includes("THURSDAY")
+        const assignDay = isBothDays ? null : state.activeDay
+        state.assignCompany(state.selectedCompany, state.hoveredBooths, assignDay).catch(() => {})
+      }
+      state.cancelRepositioning()
       repoLastResult.current = ""
     },
-    [repositioning, selectedCompany, getAssignmentForCompany, moveCompany, cancelRepositioning]
+    []
   )
 
   const handleDragOver = useCallback(
@@ -382,10 +386,10 @@ export function BoothMap() {
     setHoveredBooths([], true)
   }, [setHoveredBooths])
 
-  // Get selected company name for the action bar
-  const selectedCompanyData = selectedCompany
-    ? companies.find((c) => c.id === selectedCompany)
-    : null
+  // Get selected company name for the action bar (targeted selector avoids rerender on unrelated company changes)
+  const selectedCompanyData = useMapStore(
+    (s) => s.selectedCompany ? s.companies.find((c) => c.id === s.selectedCompany) ?? null : null
+  )
 
   return (
     <div
@@ -396,38 +400,43 @@ export function BoothMap() {
       onDragLeave={handleDragLeave}
       onMouseMove={handleMouseMove}
     >
-      {/* Repositioning action bar */}
-      {repositioning && selectedCompanyData && (
-        <div className="absolute left-1/2 top-3 z-50 flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-white px-4 py-2 shadow-lg">
-          <Move className="h-4 w-4 text-blue-500" />
-          <span className="text-sm font-medium">
-            Moving {selectedCompanyData.name}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            Click a new spot or
-          </span>
-          <Button
-            size="sm"
-            variant="destructive"
-            className="h-7 text-xs"
-            onClick={() => {
-              unassignCompany(selectedCompany!)
-              cancelRepositioning()
-            }}
-          >
-            Unassign
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs"
-            onClick={cancelRepositioning}
-          >
-            <X className="mr-1 h-3 w-3" />
-            Cancel
-          </Button>
-        </div>
-      )}
+      {/* Repositioning / placing action bar */}
+      {repositioning && selectedCompanyData && (() => {
+        const isMoving = !!getAssignmentForCompany(selectedCompany!)
+        return (
+          <div className="absolute left-1/2 top-3 z-50 flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-white px-4 py-2 shadow-lg">
+            <Move className="h-4 w-4 text-blue-500" />
+            <span className="text-sm font-medium">
+              {isMoving ? "Moving" : "Placing"} {selectedCompanyData.name}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Click a {isMoving ? "new " : ""}spot or
+            </span>
+            {isMoving && (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-7 text-xs"
+                onClick={() => {
+                  unassignCompany(selectedCompany!)
+                  cancelRepositioning()
+                }}
+              >
+                Unassign
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={cancelRepositioning}
+            >
+              <X className="mr-1 h-3 w-3" />
+              Cancel
+            </Button>
+          </div>
+        )
+      })()}
 
       <Stage
         ref={stageRef as React.RefObject<Konva.Stage>}
@@ -494,7 +503,7 @@ function BoothContextMenu({
   x,
   y,
   companyId,
-  assignmentId,
+  assignmentId: _assignmentId,
   onClose,
 }: {
   x: number

@@ -24,7 +24,7 @@ interface CompanyCardProps {
 const SPONSORSHIP_OPTIONS: Sponsorship[] = ["MAROON", "DIAMOND", "GOLD", "SILVER", "BASIC"]
 
 export function CompanyCard({ company, isAssigned }: CompanyCardProps) {
-  const { setDraggedCompany, selectedCompany, setSelectedCompany, updateCompany, unassignCompany, getAssignmentForCompany, moveCompany } =
+  const { setDraggedCompany, selectedCompany, setSelectedCompany, updateCompany, unassignCompany, getAssignmentForCompany, moveCompany, repositioning, startRepositioning, cancelRepositioning } =
     useMapStore()
   const config = SPONSORSHIP_CONFIG[company.sponsorship]
   const isSelected = selectedCompany === company.id
@@ -93,13 +93,17 @@ export function CompanyCard({ company, isAssigned }: CompanyCardProps) {
       draggable={!isAssigned}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      onClick={() =>
-        setSelectedCompany(isSelected ? null : company.id)
-      }
+      onClick={() => {
+        if (isSelected && repositioning) {
+          cancelRepositioning()
+        } else {
+          startRepositioning(company.id)
+        }
+      }}
       className={`flex min-w-0 items-center gap-2 rounded-md border px-2 py-1.5 text-sm transition-colors ${
         isAssigned
-          ? "border-transparent bg-muted/50 text-muted-foreground"
-          : "cursor-grab border-border bg-white hover:bg-gray-50 active:cursor-grabbing"
+          ? "cursor-pointer border-transparent bg-muted/50 text-muted-foreground hover:bg-muted"
+          : "cursor-pointer border-border bg-white hover:bg-gray-50"
       } ${isSelected ? "ring-2 ring-primary" : ""}`}
     >
       {!isAssigned && (
