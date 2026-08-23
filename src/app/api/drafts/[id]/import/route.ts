@@ -99,10 +99,19 @@ export async function POST(
     existingCompanies.map((c) => [registrationKey(c.name, c.registeredOn), c])
   )
 
-  // Last row wins if a report lists the same registration twice.
+  // Last row wins if a report lists the same registration twice. That silently
+  // shrinks the count against the file, so each collapsed row is called out.
   const incomingByKey = new Map<string, ParsedRegistration>()
   for (const r of records) {
-    incomingByKey.set(registrationKey(r.name, r.registeredOn), r)
+    const key = registrationKey(r.name, r.registeredOn)
+    if (incomingByKey.has(key)) {
+      warnings.push(
+        `“${r.name}” appears twice with the same registration date${
+          r.registeredOn ? ` (${r.registeredOn})` : ""
+        }. Only the last row was kept.`
+      )
+    }
+    incomingByKey.set(key, r)
   }
 
   const items: ImportPreviewItem[] = []
