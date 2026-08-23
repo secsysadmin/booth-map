@@ -33,6 +33,7 @@ export async function getDraftExportRows(draftId: string) {
   }
 
   return draft.assignments
+    .filter((a) => !a.company.isPlaceholder)
     .map((a) => ({
       Name: a.company.name,
       "DAYS REGISTERED": formatDays(a.day, a.company.days),

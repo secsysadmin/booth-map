@@ -330,7 +330,7 @@ export default function EditorPage() {
       <Dialog open={googleSheetsOpen} onOpenChange={setGoogleSheetsOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Import Companies</DialogTitle>
+            <DialogTitle>Google Sheets Export</DialogTitle>
           </DialogHeader>
           <GoogleSheetsExportCard
             googleSheetUrl={googleSheetUrl}
