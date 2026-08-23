@@ -95,7 +95,8 @@ export function MapToolbar({ onZoomIn, onZoomOut, onZoomFit }: MapToolbarProps) 
         <Button
           size="sm"
           variant={blockMode ? "default" : "outline"}
-          className="h-8 bg-white/90 text-xs shadow-sm backdrop-blur"
+          className="h-8 bg-white/90 text-xs shadow-sm backdrop-blur data-[active=true]:bg-primary"
+          data-active={blockMode}
           onClick={() => setBlockMode(!blockMode)}
           title="Block booths so they can't be assigned. Blocks apply only to the day you're viewing."
         >
