@@ -77,7 +77,10 @@ export function parseDelimited(text: string, delim: string): string[][] {
 
 function isHeaderRow(fields: string[]): boolean {
   const first = (fields[0] || "").trim().toLowerCase()
-  if (first === "organization name" || first === "name" || first === "company")
+  // "Company Name", "Organization Name", "Name", "Company", "Employer" — the
+  // exporters in use all label the first column some variation of this.
+  if (/^(organization|company|employer|account)?\s*name$/.test(first)) return true
+  if (first === "company" || first === "organization" || first === "employer")
     return true
   const joined = fields.join(" ").toLowerCase()
   if (joined.includes("representative registering")) return true

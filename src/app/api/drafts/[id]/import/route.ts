@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { Prisma } from "@prisma/client"
 import { getAuthUser } from "@/lib/auth"
 import * as XLSX from "xlsx"
 import type {
@@ -154,24 +155,27 @@ export async function POST(
   // Companies whose assignment no longer makes sense after the import.
   const invalidatedCompanyIds: string[] = []
 
+  // Writes are collected and sent in batches. One round-trip per registration
+  // meant a 500-row report spent about a minute in pure network latency.
+  const toCreate: Prisma.CompanyCreateManyInput[] = []
+  const toUpdate: Prisma.PrismaPromise<unknown>[] = []
+
   for (const [key, r] of incomingByKey) {
     const existing = existingByKey.get(key)
 
     if (!existing) {
-      await prisma.company.create({
-        data: {
-          name: r.name,
-          days: r.days,
-          sponsorship: r.sponsorship,
-          boothCount: r.boothCount,
-          industry: r.industry,
-          status: r.status,
-          contactName: r.contactName || null,
-          contactEmail: r.contactEmail || null,
-          contactPhone: r.contactPhone || null,
-          registeredOn: r.registeredOn || null,
-          draftId: id,
-        },
+      toCreate.push({
+        name: r.name,
+        days: r.days,
+        sponsorship: r.sponsorship,
+        boothCount: r.boothCount,
+        industry: r.industry,
+        status: r.status,
+        contactName: r.contactName || null,
+        contactEmail: r.contactEmail || null,
+        contactPhone: r.contactPhone || null,
+        registeredOn: r.registeredOn || null,
+        draftId: id,
       })
       continue
     }
@@ -189,20 +193,32 @@ export async function POST(
       invalidatedCompanyIds.push(existing.id)
     }
 
-    await prisma.company.update({
-      where: { id: existing.id },
-      data: {
-        days: r.days,
-        sponsorship: r.sponsorship,
-        boothCount,
-        industry: r.industry,
-        status: r.status,
-        // Only overwrite contact details the report actually carried.
-        ...(r.contactName && { contactName: r.contactName }),
-        ...(r.contactEmail && { contactEmail: r.contactEmail }),
-        ...(r.contactPhone && { contactPhone: r.contactPhone }),
-      },
-    })
+    toUpdate.push(
+      prisma.company.update({
+        where: { id: existing.id },
+        data: {
+          days: r.days,
+          sponsorship: r.sponsorship,
+          boothCount,
+          industry: r.industry,
+          status: r.status,
+          // Only overwrite contact details the report actually carried.
+          ...(r.contactName && { contactName: r.contactName }),
+          ...(r.contactEmail && { contactEmail: r.contactEmail }),
+          ...(r.contactPhone && { contactPhone: r.contactPhone }),
+        },
+      })
+    )
+  }
+
+  if (toCreate.length) {
+    await prisma.company.createMany({ data: toCreate })
+  }
+
+  // Chunked so a very large report doesn't build one oversized statement.
+  const UPDATE_CHUNK = 100
+  for (let i = 0; i < toUpdate.length; i += UPDATE_CHUNK) {
+    await prisma.$transaction(toUpdate.slice(i, i + UPDATE_CHUNK))
   }
 
   if (removedCompanies.length) {

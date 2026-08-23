@@ -7,7 +7,7 @@ import { getCanvasDimensions } from "@/lib/booth-geometry"
 import { BoothGrid } from "./booth-grid"
 import { IndustryZones, type ZoneHandle } from "./industry-zones"
 import { MapLegend, MapToolbar } from "./map-toolbar"
-import { SPONSORSHIP_CONFIG } from "@/lib/constants"
+import { BOOTH_WIDTH, SPONSORSHIP_CONFIG } from "@/lib/constants"
 import {
   findBestPlacement,
   getBoothAt,
@@ -85,7 +85,12 @@ export function BoothMap() {
     ids: Set<string>
     adding: boolean
   } | null>(null)
-  const paintRef = useRef<{ ids: Set<string>; adding: boolean } | null>(null)
+  const paintRef = useRef<{
+    ids: Set<string>
+    adding: boolean
+    last: { x: number; y: number }
+  } | null>(null)
+  const paintRafRef = useRef<number | null>(null)
   const zoneOpRef = useRef<ZoneOp | null>(null)
 
   const canvasDims = getCanvasDimensions()
@@ -463,10 +468,15 @@ export function BoothMap() {
     const paint = paintRef.current
     if (paint) {
       paintRef.current = null
-      setPaintPreview(null)
+      if (paintRafRef.current) {
+        cancelAnimationFrame(paintRafRef.current)
+        paintRafRef.current = null
+      }
       const ids = [...paint.ids]
       const action = paint.adding ? state.blockBooths : state.unblockBooths
-      action(ids, state.activeDay).catch(() => {})
+      // The preview stays up until the write lands. Clearing it first would
+      // flash every booth back to unblocked for the length of the round-trip.
+      action(ids, state.activeDay).finally(() => setPaintPreview(null))
       return
     }
 
@@ -492,8 +502,10 @@ export function BoothMap() {
   const handleStageMouseDown = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       if (e.evt.button !== 0) return
-      const pos = e.target.getStage()?.getRelativePointerPosition()
-      if (!pos) return
+      // pageToCanvas, not Konva's getRelativePointerPosition: the stage carries
+      // its own pan/zoom, and this is the conversion the repositioning path
+      // already uses successfully.
+      const pos = pageToCanvas(e.evt.clientX, e.evt.clientY)
 
       const state = useMapStore.getState()
 
@@ -503,7 +515,7 @@ export function BoothMap() {
         // Whether the stroke blocks or unblocks is decided by the booth it
         // started on, so dragging back over it doesn't flip-flop.
         const adding = !state.getBlockedBoothIds(state.activeDay).has(booth.id)
-        paintRef.current = { ids: new Set([booth.id]), adding }
+        paintRef.current = { ids: new Set([booth.id]), adding, last: pos }
         setPaintPreview({ ids: new Set([booth.id]), adding })
         return
       }
@@ -571,14 +583,41 @@ export function BoothMap() {
       const op = zoneOpRef.current
       if (!paint && !op) return
 
-      const pos = e.target.getStage()?.getRelativePointerPosition()
-      if (!pos) return
+      // pageToCanvas, not Konva's getRelativePointerPosition: the stage carries
+      // its own pan/zoom, and this is the conversion the repositioning path
+      // already uses successfully.
+      const pos = pageToCanvas(e.evt.clientX, e.evt.clientY)
 
       if (paint) {
-        const booth = getBoothAt(pos.x, pos.y)
-        if (booth && !paint.ids.has(booth.id)) {
-          paint.ids.add(booth.id)
-          setPaintPreview({ ids: new Set(paint.ids), adding: paint.adding })
+        const dx = pos.x - paint.last.x
+        const dy = pos.y - paint.last.y
+        const distance = Math.hypot(dx, dy)
+        // Half a booth per step is dense enough that nothing can be stepped over.
+        const steps = Math.max(1, Math.ceil(distance / (BOOTH_WIDTH / 2)))
+
+        let added = false
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps
+          const booth = getBoothAt(paint.last.x + dx * t, paint.last.y + dy * t)
+          if (booth && !paint.ids.has(booth.id)) {
+            paint.ids.add(booth.id)
+            added = true
+          }
+        }
+        paint.last = pos
+
+        if (added) {
+          if (!paintRafRef.current) {
+            paintRafRef.current = requestAnimationFrame(() => {
+              paintRafRef.current = null
+              const current = paintRef.current
+              if (!current) return
+              setPaintPreview({
+                ids: new Set(current.ids),
+                adding: current.adding,
+              })
+            })
+          }
         }
         return
       }
