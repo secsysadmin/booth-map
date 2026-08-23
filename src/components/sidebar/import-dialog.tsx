@@ -35,6 +35,7 @@ interface ApplyResult {
   updated: number
   unchanged: number
   removed: number
+  placed: number
   droppedAssignments: number
   errors: string[]
   total: number
@@ -126,7 +127,8 @@ export function ImportDialog({
     setText("")
     setPendingFile(null)
     toast.success(
-      `Imported ${data.total} registrations (${data.created} new, ${data.updated} updated)`
+      `Imported ${data.total} registrations (${data.created} new, ${data.updated} updated)` +
+        (data.placed > 0 ? `, ${data.placed} placed on the map` : "")
     )
     onImportComplete()
   }
@@ -206,6 +208,15 @@ export function ImportDialog({
                 A status cell reading Confirmed, Pending or Canceled sets the
                 registration status; without one, companies come in as confirmed.
               </p>
+              <p>
+                A <code>Number of booths</code> column overrides the tier&rsquo;s default
+                count — that is how a Diamond sponsor with a single booth comes through
+                correctly. A <code>Booth assigned</code> column like <code>P-28</code> or{" "}
+                <code>A-13, A-14, A-15</code> places the company on the map, as long as it
+                is confirmed, the booths are free, and there are as many of them as the
+                company booked. Anything that doesn&rsquo;t fit is listed as a warning
+                instead of being forced onto the floor.
+              </p>
             </div>
           )}
 
@@ -276,6 +287,14 @@ export function ImportDialog({
                     </span>
                   </>
                 )}
+                {preview.placed > 0 && (
+                  <>
+                    ,{" "}
+                    <span className="font-semibold text-blue-700">
+                      {preview.placed} placed on the map
+                    </span>
+                  </>
+                )}
               </p>
 
               {preview.items.length > 0 && (
@@ -291,6 +310,12 @@ export function ImportDialog({
                       </span>
                       {item.name}
                       {item.changes.length > 0 && ` — ${item.changes.join("; ")}`}
+                      {item.booths && item.booths.length > 0 && (
+                        <span className="text-blue-700">
+                          {" "}
+                          → {item.booths.join(", ")}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>

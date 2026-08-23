@@ -88,6 +88,8 @@ export interface ParsedRegistration {
   days: Day[]
   sponsorship: Sponsorship
   boothCount: number
+  boothCountFromReport: boolean
+  assignedBooths: string[]
   industry: Industry
   status: RegistrationStatus
   contactName: string
@@ -101,6 +103,7 @@ export interface ImportPreviewItem {
   registeredOn: string
   kind: "new" | "updated" | "unchanged"
   changes: string[]
+  booths?: string[]
 }
 
 export interface ImportPreview {
@@ -111,6 +114,7 @@ export interface ImportPreview {
   removed: string[]
   items: ImportPreviewItem[]
   warnings: string[]
+  placed: number
 }
 
 export interface BoothDefinition {

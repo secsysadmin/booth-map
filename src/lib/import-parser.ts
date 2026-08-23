@@ -28,6 +28,8 @@ const STATUS_FIELD = /^\s*(confirmed|pending|cancell?ed)\s*$/i
 const DATE_FIELD = /^[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}/
 const EMAIL_FIELD = /\S+@\S+\.\S+/
 const PHONE_FIELD = /^[\d()\-\s.+x]{7,}$/
+const BOOTH_IDS_FIELD = /^[A-Q]-?\d{1,2}(\s*,\s*[A-Q]-?\d{1,2})*$/i
+const BOOTH_COUNT_FIELD = /^\d{1,2}$/
 
 /**
  * Splits delimited text (CSV or TSV) honoring quoted fields, which may contain
@@ -73,6 +75,40 @@ export function parseDelimited(text: string, delim: string): string[][] {
     rows.push(row)
   }
   return rows
+}
+
+export interface ColumnHints {
+  boothCount: number | null
+  boothAssignment: number | null
+}
+
+const NO_HINTS: ColumnHints = { boothCount: null, boothAssignment: null }
+
+function readColumnHints(fields: string[]): ColumnHints {
+  const hints: ColumnHints = { boothCount: null, boothAssignment: null }
+  fields.forEach((f, i) => {
+    const h = f.trim().toLowerCase()
+    if (
+      hints.boothCount === null &&
+      /^(number of booths|# of booths|booth count|booths)$/.test(h)
+    ) {
+      hints.boothCount = i
+    }
+    if (
+      hints.boothAssignment === null &&
+      /(booths? assigned|assigned booths?|booth assignment)/.test(h)
+    ) {
+      hints.boothAssignment = i
+    }
+  })
+  return hints
+}
+
+function normalizeBoothIds(raw: string): string[] {
+  return raw
+    .split(/[,;]/)
+    .map((part) => part.trim().toUpperCase().replace(/^([A-Q])-?(\d{1,2})$/, "$1-$2"))
+    .filter(Boolean)
 }
 
 function isHeaderRow(fields: string[]): boolean {
@@ -133,7 +169,8 @@ function findIndustry(fields: string[]): Industry {
  */
 export function fieldsToRecord(
   rawFields: unknown[],
-  warnings: string[]
+  warnings: string[],
+  hints: ColumnHints = NO_HINTS
 ): ParsedRegistration | null {
   const fields = rawFields.map((f) => String(f ?? "").trim())
   const nonEmpty = fields.filter(Boolean)
@@ -206,6 +243,20 @@ export function fieldsToRecord(
   // which is what the importer meant before statuses existed.
   const resolvedStatus: RegistrationStatus = status ?? "CONFIRMED"
 
+  const assignmentField =
+    hints.boothAssignment !== null
+      ? fields[hints.boothAssignment] || ""
+      : fields.slice(1).find((f) => f && BOOTH_IDS_FIELD.test(f)) || ""
+  const assignedBooths = assignmentField ? normalizeBoothIds(assignmentField) : []
+
+  let reportedBoothCount: number | null = null
+  const countField =
+    hints.boothCount !== null ? fields[hints.boothCount] || "" : ""
+  if (countField && BOOTH_COUNT_FIELD.test(countField)) {
+    const n = parseInt(countField, 10)
+    if (n >= 1) reportedBoothCount = n
+  }
+
   // Column 2 is the contact name in the report, but only when it isn't
   // something we already recognized as another field.
   const second = fields[1] || ""
@@ -215,7 +266,9 @@ export function fieldsToRecord(
     second !== contactPhone &&
     second !== pkg &&
     second !== registeredOn &&
+    second !== assignmentField &&
     !STATUS_FIELD.test(second) &&
+    !BOOTH_IDS_FIELD.test(second) &&
     !VALID_INDUSTRIES.includes(second.toUpperCase() as Industry)
       ? second
       : ""
@@ -224,7 +277,9 @@ export function fieldsToRecord(
     name,
     days,
     sponsorship,
-    boothCount: SPONSORSHIP_CONFIG[sponsorship].booths,
+    boothCount: reportedBoothCount ?? SPONSORSHIP_CONFIG[sponsorship].booths,
+    boothCountFromReport: reportedBoothCount !== null,
+    assignedBooths,
     industry: findIndustry(fields),
     status: resolvedStatus,
     contactName,
@@ -232,6 +287,27 @@ export function fieldsToRecord(
     contactPhone,
     registeredOn,
   }
+}
+
+export function parseRows(
+  rows: unknown[][],
+  warnings: string[]
+): ParsedRegistration[] {
+  let hints = NO_HINTS
+  for (const row of rows) {
+    const fields = row.map((f) => String(f ?? "").trim())
+    if (isHeaderRow(fields)) {
+      hints = readColumnHints(fields)
+      break
+    }
+  }
+
+  const records: ParsedRegistration[] = []
+  for (const row of rows) {
+    const r = fieldsToRecord(row, warnings, hints)
+    if (r) records.push(r)
+  }
+  return records
 }
 
 /**
@@ -276,13 +352,7 @@ export function parseReport(text: string): {
     }
   }
 
-  const records: ParsedRegistration[] = []
-  for (const fields of fieldRows) {
-    const r = fieldsToRecord(fields, warnings)
-    if (r) records.push(r)
-  }
-
-  return { records, warnings }
+  return { records: parseRows(fieldRows, warnings), warnings }
 }
 
 /**
