@@ -177,6 +177,23 @@ export function getBoothById(id: string): BoothDefinition | undefined {
   return getBoothMap().get(id)
 }
 
+/**
+ * Exact hit test: the booth under a canvas point, or null if the point falls in
+ * an aisle, a gap between rows, or off the grid.
+ */
+export function getBoothAt(
+  canvasX: number,
+  canvasY: number
+): BoothDefinition | undefined {
+  return getBoothLayout().find(
+    (b) =>
+      canvasX >= b.x &&
+      canvasX <= b.x + b.width &&
+      canvasY >= b.y &&
+      canvasY <= b.y + b.height
+  )
+}
+
 export function getSegmentBooths(
   row: string,
   segment: number

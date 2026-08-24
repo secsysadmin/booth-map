@@ -37,6 +37,10 @@ model Draft {
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
   industryRanges      Json?
+  // Free-form colored zones drawn over the map as a visual planning guide.
+  // Unrelated to industryRanges, which drives auto-placement.
+  industryZones       Json?
+  capacityPerDay      Int               @default(480)
   googleSheetUrl      String?
   googleSpreadsheetId String?
   googleWorksheetName String?
@@ -48,17 +52,24 @@ model Draft {
 }
 
 model Company {
-  id            String            @id @default(uuid())
+  id            String             @id @default(uuid())
   name          String
   days          Day[]
-  sponsorship   Sponsorship       @default(BASIC)
-  boothCount    Int               @default(1)
+  sponsorship   Sponsorship        @default(BASIC)
+  boothCount    Int                @default(1)
   draftId       String
-  hasQueue      Boolean           @default(false)
-  industry      Industry          @default(OTHER)
-  isPlaceholder Boolean           @default(false)
+  hasQueue      Boolean            @default(false)
+  industry      Industry           @default(OTHER)
+  isPlaceholder Boolean            @default(false)
+  status        RegistrationStatus @default(CONFIRMED)
+  contactName   String?
+  contactEmail  String?
+  contactPhone  String?
+  // Raw "Registered On" text from the report. Combined with name it identifies a
+  // registration, so a company that cancels and re-registers keeps both rows.
+  registeredOn  String?
   assignments   BoothAssignment[]
-  draft         Draft             @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  draft         Draft              @relation(fields: [draftId], references: [id], onDelete: Cascade)
 }
 
 model BoothAssignment {
@@ -84,6 +95,12 @@ enum Sponsorship {
 enum Day {
   WEDNESDAY
   THURSDAY
+}
+
+enum RegistrationStatus {
+  CONFIRMED
+  PENDING
+  CANCELED
 }
 
 enum Industry {

@@ -37,14 +37,34 @@ export function CompanySidebar() {
     [assignments]
   )
 
+  // Only confirmed registrations can hold a booth, so the placement sidebar
+  // lists those alone. Pending and canceled ones live on the dashboard.
   const activeCompanies = useMemo(
-    () => companies.filter((c) => !c.isPlaceholder && c.days.includes(activeDay)),
+    () =>
+      companies.filter(
+        (c) =>
+          !c.isPlaceholder &&
+          c.status === "CONFIRMED" &&
+          c.days.includes(activeDay)
+      ),
+    [companies, activeDay]
+  )
+
+  const notYetConfirmed = useMemo(
+    () =>
+      companies.filter(
+        (c) =>
+          !c.isPlaceholder &&
+          c.status === "PENDING" &&
+          c.days.includes(activeDay)
+      ).length,
     [companies, activeDay]
   )
 
   const filteredCompanies = useMemo(() => {
     return companies.filter((c) => {
       if (c.isPlaceholder) return false
+      if (c.status !== "CONFIRMED") return false
       // Day filter: show companies relevant to active day
       if (!c.days.includes(activeDay)) return false
 
@@ -175,6 +195,12 @@ export function CompanySidebar() {
             <span>{totalActiveAssigned}/{totalCompanies} assigned</span>
             <span>{totalActiveUnassigned} remaining</span>
           </div>
+          {notYetConfirmed > 0 && (
+            <p className="text-[10px] text-amber-700">
+              {notYetConfirmed} pending registration{notYetConfirmed === 1 ? "" : "s"} not
+              shown — confirm on the dashboard to place them
+            </p>
+          )}
         </div>
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
@@ -248,7 +274,9 @@ export function CompanySidebar() {
           ))}
           {grouped.size === 0 && (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              No companies match filters
+              {activeCompanies.length === 0
+                ? "No confirmed companies for this day"
+                : "No companies match filters"}
             </p>
           )}
         </div>

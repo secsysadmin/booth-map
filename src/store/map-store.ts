@@ -4,12 +4,27 @@ import type {
   BoothAssignment,
   BoothDefinition,
   Day,
+  DayCapacity,
+  IndustryZoneConfig,
+  IndustryZoneRegion,
   Sponsorship,
   SidebarFilter,
 } from "@/types"
 import { getBoothLayout } from "@/lib/booth-geometry"
 import { authFetch } from "@/lib/auth-fetch"
+import {
+  DEFAULT_CAPACITY_PER_DAY,
+  INDUSTRY_ZONE_COLORS,
+} from "@/lib/constants"
 import { toast } from "sonner"
+
+const EMPTY_ZONES: IndustryZoneConfig = { show: false, labels: [], regions: [] }
+
+// Dragging a zone fires a change per frame, so writes are coalesced.
+let zonePersistTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Which zone tool the pointer is currently armed with, if any. */
+export type ZoneTool = { kind: "draw"; labelId: string } | { kind: "erase" } | null
 
 interface MapStore {
   // Data
@@ -17,6 +32,8 @@ interface MapStore {
   companies: Company[]
   assignments: BoothAssignment[]
   booths: BoothDefinition[]
+  capacityPerDay: number
+  industryZones: IndustryZoneConfig
 
   // UI State
   activeDay: Day
@@ -25,6 +42,9 @@ interface MapStore {
   hoveredValid: boolean
   selectedCompany: string | null
   repositioning: boolean  // true when a selected company is being moved
+  blockMode: boolean      // painting blocked booths instead of placing companies
+  zoneTool: ZoneTool
+  selectedZoneId: string | null
   tooltip: { x: number; y: number; boothId: string; companyName: string; sponsorship: string; boothIds: string[] } | null
   contextMenu: { x: number; y: number; boothId: string; companyId: string | null; assignmentId: string | null } | null
 
@@ -41,6 +61,21 @@ interface MapStore {
   setAssignments: (assignments: BoothAssignment[]) => void
   addCompany: (company: Company) => void
   updateCompany: (id: string, updates: Partial<Company>) => Promise<void>
+  deleteCompany: (id: string) => Promise<void>
+  setCapacityPerDay: (capacity: number) => void
+  saveCapacityPerDay: (capacity: number) => Promise<void>
+
+  // Industry guide overlay
+  setIndustryZones: (zones: IndustryZoneConfig | null | undefined) => void
+  toggleIndustryZones: () => void
+  addZoneLabel: (name: string) => string | null
+  removeZoneLabel: (labelId: string) => void
+  addZoneRegion: (region: IndustryZoneRegion) => void
+  updateZoneRegion: (id: string, patch: Partial<IndustryZoneRegion>) => void
+  removeZoneRegion: (id: string) => void
+  clearZoneRegions: () => void
+  setZoneTool: (tool: ZoneTool) => void
+  setSelectedZoneId: (id: string | null) => void
 
   // Assignment actions
   assignCompany: (companyId: string, boothIds: string[], day: Day | null) => Promise<void>
@@ -55,8 +90,12 @@ interface MapStore {
   }>
   blockBooth: (boothId: string, day: Day) => Promise<void>
   unblockBooth: (assignmentId: string) => Promise<void>
+  blockBooths: (boothIds: string[], day: Day) => Promise<void>
+  unblockBooths: (boothIds: string[], day: Day) => Promise<void>
+  clearBlockedForDay: (day: Day) => Promise<number>
 
   // UI actions
+  setBlockMode: (on: boolean) => void
   setActiveDay: (day: Day) => void
   setDraggedCompany: (company: Company | null) => void
   setHoveredBooths: (boothIds: string[], valid: boolean) => void
@@ -74,6 +113,33 @@ interface MapStore {
   isBoothAvailable: (boothId: string, day: Day) => boolean
   getOccupiedBoothIds: (day: Day) => Set<string>
   getAssignmentForCompany: (companyId: string) => BoothAssignment | undefined
+  getBlockedBoothIds: (day: Day) => Set<string>
+  getDayCapacity: (day: Day) => DayCapacity
+}
+
+/**
+ * Writes the industry guide back to the draft. Debounced because resizing a
+ * zone updates state on every pointer move.
+ */
+function persistZones(get: () => MapStore) {
+  if (zonePersistTimer) clearTimeout(zonePersistTimer)
+  zonePersistTimer = setTimeout(async () => {
+    zonePersistTimer = null
+    const { draftId, industryZones } = get()
+    if (!draftId) return
+    try {
+      const res = await authFetch(`/api/drafts/${draftId}`, {
+        method: "PUT",
+        body: JSON.stringify({ industryZones }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to save industry zones")
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save industry zones")
+    }
+  }, 600)
 }
 
 export const useMapStore = create<MapStore>((set, get) => ({
@@ -82,6 +148,8 @@ export const useMapStore = create<MapStore>((set, get) => ({
   companies: [],
   assignments: [],
   booths: getBoothLayout(),
+  capacityPerDay: DEFAULT_CAPACITY_PER_DAY,
+  industryZones: EMPTY_ZONES,
 
   activeDay: "WEDNESDAY",
   draggedCompany: null,
@@ -89,6 +157,9 @@ export const useMapStore = create<MapStore>((set, get) => ({
   hoveredValid: true,
   selectedCompany: null,
   repositioning: false,
+  blockMode: false,
+  zoneTool: null,
+  selectedZoneId: null,
   tooltip: null,
   contextMenu: null,
   exportMapFn: null,
@@ -136,6 +207,160 @@ export const useMapStore = create<MapStore>((set, get) => ({
       throw e
     }
   },
+
+  deleteCompany: async (id) => {
+    const snapshotCompanies = get().companies
+    const snapshotAssignments = get().assignments
+    set((state) => ({
+      companies: state.companies.filter((c) => c.id !== id),
+      assignments: state.assignments.filter((a) => a.companyId !== id),
+      selectedCompany: state.selectedCompany === id ? null : state.selectedCompany,
+    }))
+    try {
+      const res = await authFetch(`/api/companies/${id}`, { method: "DELETE" })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to delete company")
+      }
+    } catch (e) {
+      set({ companies: snapshotCompanies, assignments: snapshotAssignments })
+      toast.error(e instanceof Error ? e.message : "Failed to delete company")
+      throw e
+    }
+  },
+
+  setCapacityPerDay: (capacity) => set({ capacityPerDay: capacity }),
+
+  saveCapacityPerDay: async (capacity) => {
+    const { draftId, capacityPerDay } = get()
+    if (!draftId || capacity === capacityPerDay) return
+    set({ capacityPerDay: capacity })
+    try {
+      const res = await authFetch(`/api/drafts/${draftId}`, {
+        method: "PUT",
+        body: JSON.stringify({ capacityPerDay: capacity }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to save capacity")
+      }
+    } catch (e) {
+      set({ capacityPerDay })
+      toast.error(e instanceof Error ? e.message : "Failed to save capacity")
+    }
+  },
+
+  // Industry guide overlay
+  setIndustryZones: (zones) =>
+    set({
+      industryZones: zones
+        ? {
+            show: zones.show === true,
+            labels: zones.labels ?? [],
+            regions: zones.regions ?? [],
+          }
+        : EMPTY_ZONES,
+    }),
+
+  toggleIndustryZones: () => {
+    const next = !get().industryZones.show
+    set((state) => ({
+      industryZones: { ...state.industryZones, show: next },
+      // Leaving the overlay drops whatever tool was armed.
+      zoneTool: next ? state.zoneTool : null,
+      selectedZoneId: next ? state.selectedZoneId : null,
+    }))
+    persistZones(get)
+  },
+
+  addZoneLabel: (name) => {
+    const trimmed = name.trim().slice(0, 40)
+    if (!trimmed) return null
+    const { industryZones } = get()
+    const used = new Set(industryZones.labels.map((l) => l.color))
+    const color =
+      INDUSTRY_ZONE_COLORS.find((c) => !used.has(c)) ??
+      INDUSTRY_ZONE_COLORS[industryZones.labels.length % INDUSTRY_ZONE_COLORS.length]
+    const id = `zl-${Math.random().toString(36).slice(2, 10)}`
+    set((state) => ({
+      industryZones: {
+        ...state.industryZones,
+        show: true,
+        labels: [...state.industryZones.labels, { id, name: trimmed, color }],
+      },
+      zoneTool: { kind: "draw", labelId: id },
+      blockMode: false,
+    }))
+    persistZones(get)
+    return id
+  },
+
+  removeZoneLabel: (labelId) => {
+    set((state) => ({
+      industryZones: {
+        ...state.industryZones,
+        labels: state.industryZones.labels.filter((l) => l.id !== labelId),
+        regions: state.industryZones.regions.filter((r) => r.labelId !== labelId),
+      },
+      zoneTool:
+        state.zoneTool?.kind === "draw" && state.zoneTool.labelId === labelId
+          ? null
+          : state.zoneTool,
+      selectedZoneId: null,
+    }))
+    persistZones(get)
+  },
+
+  addZoneRegion: (region) => {
+    set((state) => ({
+      industryZones: {
+        ...state.industryZones,
+        regions: [...state.industryZones.regions, region],
+      },
+      selectedZoneId: region.id,
+    }))
+    persistZones(get)
+  },
+
+  updateZoneRegion: (id, patch) => {
+    set((state) => ({
+      industryZones: {
+        ...state.industryZones,
+        regions: state.industryZones.regions.map((r) =>
+          r.id === id ? { ...r, ...patch } : r
+        ),
+      },
+    }))
+    persistZones(get)
+  },
+
+  removeZoneRegion: (id) => {
+    set((state) => ({
+      industryZones: {
+        ...state.industryZones,
+        regions: state.industryZones.regions.filter((r) => r.id !== id),
+      },
+      selectedZoneId: state.selectedZoneId === id ? null : state.selectedZoneId,
+    }))
+    persistZones(get)
+  },
+
+  clearZoneRegions: () => {
+    set((state) => ({
+      industryZones: { ...state.industryZones, regions: [] },
+      selectedZoneId: null,
+    }))
+    persistZones(get)
+  },
+
+  setZoneTool: (tool) =>
+    set((state) => ({
+      zoneTool: tool,
+      selectedZoneId: null,
+      blockMode: tool ? false : state.blockMode,
+    })),
+
+  setSelectedZoneId: (id) => set({ selectedZoneId: id }),
 
   // Assignment actions
   assignCompany: async (companyId, boothIds, day) => {
@@ -370,7 +595,97 @@ export const useMapStore = create<MapStore>((set, get) => ({
     }
   },
 
+  blockBooths: async (boothIds, day) => {
+    const { draftId } = get()
+    if (!draftId || boothIds.length === 0) return
+
+    try {
+      const res = await authFetch("/api/assignments/block", {
+        method: "POST",
+        body: JSON.stringify({ draftId, boothIds, day }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to block booths")
+      }
+
+      const data = await res.json()
+      set((state) => ({
+        companies: [...state.companies, ...(data.companies || [])],
+        assignments: [...state.assignments, ...(data.assignments || [])],
+      }))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to block booths")
+      throw e
+    }
+  },
+
+  unblockBooths: async (boothIds, day) => {
+    const { draftId } = get()
+    if (!draftId || boothIds.length === 0) return
+
+    try {
+      const res = await authFetch("/api/assignments/block", {
+        method: "DELETE",
+        body: JSON.stringify({ draftId, day, boothIds }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to unblock booths")
+      }
+
+      const { removedCompanyIds = [] } = await res.json()
+      const removed = new Set<string>(removedCompanyIds)
+      set((state) => ({
+        companies: state.companies.filter((c) => !removed.has(c.id)),
+        assignments: state.assignments.filter((a) => !removed.has(a.companyId)),
+      }))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to unblock booths")
+      throw e
+    }
+  },
+
+  clearBlockedForDay: async (day) => {
+    const { draftId } = get()
+    if (!draftId) return 0
+
+    try {
+      const res = await authFetch("/api/assignments/block", {
+        method: "DELETE",
+        body: JSON.stringify({ draftId, day, all: true }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to clear blocked booths")
+      }
+
+      const { removedCompanyIds = [] } = await res.json()
+      const removed = new Set<string>(removedCompanyIds)
+      set((state) => ({
+        companies: state.companies.filter((c) => !removed.has(c.id)),
+        assignments: state.assignments.filter((a) => !removed.has(a.companyId)),
+      }))
+      return removedCompanyIds.length
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to clear blocked booths")
+      throw e
+    }
+  },
+
   // UI actions
+  setBlockMode: (on) =>
+    set({
+      blockMode: on,
+      // Blocking and zone drawing both own the pointer, so only one is armed.
+      zoneTool: on ? null : get().zoneTool,
+      selectedZoneId: null,
+      selectedCompany: null,
+      repositioning: false,
+    }),
   setActiveDay: (day) => set({ activeDay: day, selectedCompany: null }),
   setDraggedCompany: (company) => set({ draggedCompany: company }),
   setHoveredBooths: (boothIds, valid) =>
@@ -398,6 +713,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
     return companies.filter(
       (c) =>
         !c.isPlaceholder &&
+        c.status === "CONFIRMED" &&
         !assignedCompanyIds.has(c.id) &&
         c.days.includes(day)
     )
@@ -436,5 +752,39 @@ export const useMapStore = create<MapStore>((set, get) => ({
 
   getAssignmentForCompany: (companyId) => {
     return get().assignments.find((a) => a.companyId === companyId)
+  },
+
+  getBlockedBoothIds: (day) => {
+    const { assignments, companies } = get()
+    const placeholderIds = new Set(
+      companies.filter((c) => c.isPlaceholder).map((c) => c.id)
+    )
+    const blocked = new Set<string>()
+    for (const a of assignments) {
+      if (!placeholderIds.has(a.companyId)) continue
+      if (a.day === null || a.day === day) {
+        for (const bid of a.boothIds) blocked.add(bid)
+      }
+    }
+    return blocked
+  },
+
+  /**
+   * Booths spoken for on a given day. Confirmed and pending are counted
+   * separately so the dashboard can show what the floor looks like today
+   * against what it looks like if every pending registration confirms.
+   */
+  getDayCapacity: (day) => {
+    const { companies } = get()
+    const result: DayCapacity = { confirmed: 0, pending: 0, blocked: 0 }
+    for (const c of companies) {
+      if (c.isPlaceholder) continue
+      if (c.status === "CANCELED") continue
+      if (!c.days.includes(day)) continue
+      if (c.status === "CONFIRMED") result.confirmed += c.boothCount
+      else result.pending += c.boothCount
+    }
+    result.blocked = get().getBlockedBoothIds(day).size
+    return result
   },
 }))

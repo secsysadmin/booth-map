@@ -4,7 +4,12 @@ import { Prisma } from "@prisma/client"
 import { getAuthUser } from "@/lib/auth"
 import { getBoothById } from "@/lib/booth-geometry"
 import { ALL_ROWS } from "@/lib/constants"
-import type { Industry, IndustryRangeConfig, IndustryRangeSpec } from "@/types"
+import type {
+  Industry,
+  IndustryRangeConfig,
+  IndustryRangeSpec,
+  IndustryZoneConfig,
+} from "@/types"
 
 const INDUSTRIES: Industry[] = [
   "AEROSPACE",
@@ -114,6 +119,53 @@ function normalizeIndustryRanges(raw: unknown): {
   return { value: output }
 }
 
+/**
+ * The industry guide is presentation-only, so this checks shape rather than
+ * validating rectangles against the booth layout — a zone is allowed to hang
+ * over an aisle or off the edge of the grid.
+ */
+function normalizeIndustryZones(raw: unknown): {
+  value?: IndustryZoneConfig | null
+  error?: string
+} {
+  if (raw === undefined) return { value: undefined }
+  if (raw === null) return { value: null }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    return { error: "industryZones must be an object or null" }
+  }
+
+  const input = raw as Partial<IndustryZoneConfig>
+  if (!Array.isArray(input.labels) || !Array.isArray(input.regions)) {
+    return { error: "industryZones needs labels and regions arrays" }
+  }
+
+  const labels = input.labels.map((l) => ({
+    id: String(l?.id ?? ""),
+    name: String(l?.name ?? "").slice(0, 40),
+    color: String(l?.color ?? "#93c5fd"),
+  }))
+  if (labels.some((l) => !l.id || !l.name)) {
+    return { error: "Every industry zone label needs an id and a name" }
+  }
+
+  const labelIds = new Set(labels.map((l) => l.id))
+  const regions = []
+  for (const r of input.regions) {
+    const id = String(r?.id ?? "")
+    const labelId = String(r?.labelId ?? "")
+    if (!id || !labelIds.has(labelId)) {
+      return { error: "Every zone must reference an existing industry label" }
+    }
+    const nums = [r.x, r.y, r.w, r.h].map(Number)
+    if (nums.some((n) => !Number.isFinite(n))) {
+      return { error: "Zone coordinates must be numbers" }
+    }
+    regions.push({ id, labelId, x: nums[0], y: nums[1], w: nums[2], h: nums[3] })
+  }
+
+  return { value: { show: input.show === true, labels, regions } }
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -164,13 +216,26 @@ export async function PUT(
   const body = await req.json().catch(() => ({}))
   const data: {
     name?: string
+    capacityPerDay?: number
     industryRanges?: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput
+    industryZones?: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput
     googleSheetUrl?: string | null
     googleWorksheetName?: string | null
   } = {}
 
   if (typeof body.name === "string") {
     data.name = body.name
+  }
+
+  if (body.capacityPerDay !== undefined) {
+    const capacity = Number(body.capacityPerDay)
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      return NextResponse.json(
+        { error: "Capacity per day must be a positive whole number" },
+        { status: 400 }
+      )
+    }
+    data.capacityPerDay = capacity
   }
 
   if (Object.prototype.hasOwnProperty.call(body, "industryRanges")) {
@@ -182,6 +247,18 @@ export async function PUT(
       data.industryRanges = Prisma.JsonNull
     } else if (normalized.value !== undefined) {
       data.industryRanges = normalized.value as Prisma.InputJsonValue
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "industryZones")) {
+    const normalized = normalizeIndustryZones(body.industryZones)
+    if (normalized.error) {
+      return NextResponse.json({ error: normalized.error }, { status: 400 })
+    }
+    if (normalized.value === null) {
+      data.industryZones = Prisma.JsonNull
+    } else if (normalized.value !== undefined) {
+      data.industryZones = normalized.value as unknown as Prisma.InputJsonValue
     }
   }
 

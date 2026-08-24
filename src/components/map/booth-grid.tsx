@@ -21,7 +21,12 @@ import {
 } from "@/lib/constants"
 import type { BoothDefinition } from "@/types"
 
-export function BoothGrid() {
+interface BoothGridProps {
+  /** Booths under an in-progress block-paint stroke, drawn before it commits. */
+  paintPreview?: { ids: Set<string>; adding: boolean } | null
+}
+
+export function BoothGrid({ paintPreview }: BoothGridProps = {}) {
   const {
     booths,
     activeDay,
@@ -39,7 +44,13 @@ export function BoothGrid() {
     cancelRepositioning,
     moveCompany,
     getAssignmentForCompany,
+    blockMode,
+    zoneTool,
   } = useMapStore()
+
+  // While a map tool owns the pointer, booths stop reacting to clicks and hover
+  // so painting a block doesn't also start repositioning a company.
+  const toolActive = blockMode || zoneTool !== null
 
   const hoveredSet = useMemo(() => new Set(hoveredBooths), [hoveredBooths])
 
@@ -178,6 +189,13 @@ export function BoothGrid() {
         const isHovered = hoveredSet.has(booth.id)
         const isSelected = occupant && selectedCompany === occupant.companyId
 
+        const inStroke = paintPreview?.ids.has(booth.id) ?? false
+        const previewBlocking = inStroke && paintPreview!.adding
+        const previewUnblocking = inStroke && !paintPreview!.adding
+        // What the booth will look like once the stroke commits.
+        const showsBlocked =
+          (!!occupant?.isPlaceholder && !previewUnblocking) || previewBlocking
+
         // Determine fill color
         let fill = "#ffffff"
         let stroke = "#d4d4d4"
@@ -191,7 +209,7 @@ export function BoothGrid() {
           stroke = "#999"
         }
 
-        if (occupant?.isPlaceholder) {
+        if (showsBlocked) {
           fill = "#ffffff"
           stroke = "#111"
           strokeWidth = 2
@@ -228,6 +246,7 @@ export function BoothGrid() {
               cornerRadius={2}
               onContextMenu={(e) => {
                 e.evt.preventDefault()
+                if (toolActive) return
                 const stage = e.target.getStage()
                 const pointer = stage?.getPointerPosition()
                 if (!pointer) return
@@ -242,6 +261,7 @@ export function BoothGrid() {
               onClick={(e) => {
                 // Ignore right-clicks — handled by onContextMenu
                 if (e.evt.button !== 0) return
+                if (toolActive) return
                 setContextMenu(null)
                 if (repositioning && selectedCompany) {
                   // During repositioning, clicking an empty booth is handled by BoothMap's onMouseMove+click
@@ -259,7 +279,7 @@ export function BoothGrid() {
                 }
               }}
               onMouseEnter={(e) => {
-                if (!occupant) return
+                if (!occupant || toolActive) return
                 const stage = e.target.getStage()
                 if (!stage) return
                 const pointer = stage.getPointerPosition()
@@ -276,7 +296,7 @@ export function BoothGrid() {
               }}
               onMouseLeave={() => setTooltip(null)}
             />
-            {occupant?.isPlaceholder && (
+            {showsBlocked && (
               <>
                 <Line
                   points={[booth.x + 4, booth.y + 4, booth.x + booth.width - 4, booth.y + booth.height - 4]}
@@ -293,7 +313,7 @@ export function BoothGrid() {
               </>
             )}
             {/* Booth number (show when not occupied) */}
-            {!occupant && (
+            {!occupant && !showsBlocked && (
               <Text
                 x={booth.x + 2}
                 y={booth.y + booth.height / 2 - 5}

@@ -11,8 +11,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { SPONSORSHIP_CONFIG, SPONSORSHIP_TEXT_COLOR } from "@/lib/constants"
-import type { Company, Sponsorship, Day } from "@/types"
+import {
+  REGISTRATION_STATUS_CONFIG,
+  REGISTRATION_STATUS_ORDER,
+  SPONSORSHIP_CONFIG,
+  SPONSORSHIP_TEXT_COLOR,
+} from "@/lib/constants"
+import type { Company, Sponsorship, Day, RegistrationStatus } from "@/types"
 import { GripVertical, MoreVertical } from "lucide-react"
 import { toast } from "sonner"
 import { useState } from "react"
@@ -87,6 +92,22 @@ export function CompanyCard({ company, isAssigned }: CompanyCardProps) {
       toast.success(`Booth count updated to ${boothCount}`)
     } catch {
       setBoothCountInput(company.boothCount.toString())
+    }
+  }
+
+  async function handleStatusChange(status: RegistrationStatus) {
+    if (status === company.status) return
+    try {
+      // Losing confirmed status gives up the booth, so warn before it happens.
+      if (status !== "CONFIRMED" && isAssigned) {
+        await unassignCompany(company.id)
+      }
+      await updateCompany(company.id, { status })
+      toast.success(
+        `${company.name} marked ${REGISTRATION_STATUS_CONFIG[status].label.toLowerCase()}`
+      )
+    } catch {
+      // Store already showed error toast
     }
   }
 
@@ -264,6 +285,23 @@ export function CompanyCard({ company, isAssigned }: CompanyCardProps) {
             >
               {company.industry}
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+
+            <DropdownMenuLabel className="text-xs">Status</DropdownMenuLabel>
+            {REGISTRATION_STATUS_ORDER.map((s) => (
+              <DropdownMenuItem
+                key={s}
+                className="text-xs"
+                onClick={() => handleStatusChange(s)}
+              >
+                <span
+                  className="mr-2 inline-block h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: REGISTRATION_STATUS_CONFIG[s].color }}
+                />
+                {REGISTRATION_STATUS_CONFIG[s].label}
+                {s === company.status && " ✓"}
+              </DropdownMenuItem>
+            ))}
 
           </DropdownMenuContent>
         </DropdownMenu>

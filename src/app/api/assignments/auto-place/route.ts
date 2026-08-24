@@ -192,9 +192,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Only confirmed registrations get a booth; pending ones are still a forecast.
   const unassignedCompanies = draft.companies.filter(
     (company) =>
       !company.isPlaceholder &&
+      company.status === "CONFIRMED" &&
       !assignedCompanyIds.has(company.id) &&
       company.days.includes(day)
   )

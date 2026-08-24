@@ -49,3 +49,65 @@ export async function getDraftExportRows(draftId: string) {
       return aNum - bNum
     })
 }
+
+/**
+ * Every confirmed company for each day, whether or not it has booths yet, so
+ * the unplaced ones are as visible as the placed ones.
+ */
+export async function getPlacementReportRows(draftId: string) {
+  const draft = await prisma.draft.findFirst({
+    where: { id: draftId },
+    include: {
+      assignments: true,
+      companies: true,
+    },
+  })
+
+  if (!draft) {
+    throw new Error("Draft not found")
+  }
+
+  const assignmentByCompany = new Map(
+    draft.assignments.map((a) => [a.companyId, a])
+  )
+  const rows: Record<string, string | number>[] = []
+
+  for (const day of ["WEDNESDAY", "THURSDAY"] as const) {
+    const dayName =
+      day === "WEDNESDAY" ? "Wednesday (Day 1)" : "Thursday (Day 2)"
+
+    const forDay = draft.companies
+      .filter(
+        (c) =>
+          !c.isPlaceholder && c.status === "CONFIRMED" && c.days.includes(day)
+      )
+      .map((c) => {
+        const a = assignmentByCompany.get(c.id)
+        const placed = a && (a.day === null || a.day === day)
+        return {
+          name: c.name,
+          sponsorship: c.sponsorship,
+          boothCount: c.boothCount,
+          booths: placed ? formatBoothIds(a.boothIds) : "",
+        }
+      })
+      .sort((x, y) => {
+        // Placed companies first in floor order; unplaced trail alphabetically.
+        if (!!x.booths !== !!y.booths) return x.booths ? -1 : 1
+        if (x.booths && y.booths) return x.booths.localeCompare(y.booths)
+        return x.name.localeCompare(y.name)
+      })
+
+    for (const r of forDay) {
+      rows.push({
+        Day: dayName,
+        Company: r.name,
+        Package: r.sponsorship,
+        Booths: r.boothCount,
+        "Booth IDs": r.booths || "NOT PLACED",
+      })
+    }
+  }
+
+  return rows
+}

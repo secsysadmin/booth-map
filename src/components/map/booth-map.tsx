@@ -5,9 +5,12 @@ import { Stage, Layer } from "react-konva"
 import { useMapStore } from "@/store/map-store"
 import { getCanvasDimensions } from "@/lib/booth-geometry"
 import { BoothGrid } from "./booth-grid"
-import { SPONSORSHIP_CONFIG } from "@/lib/constants"
+import { IndustryZones, type ZoneHandle } from "./industry-zones"
+import { MapLegend, MapToolbar } from "./map-toolbar"
+import { BOOTH_WIDTH, SPONSORSHIP_CONFIG } from "@/lib/constants"
 import {
   findBestPlacement,
+  getBoothAt,
   getRowAndSegmentAt,
 } from "@/lib/booth-geometry"
 import { Button } from "@/components/ui/button"
@@ -15,6 +18,27 @@ import { X, Move, Check } from "lucide-react"
 import type Konva from "konva"
 import type { Sponsorship, Day } from "@/types"
 import { toast } from "sonner"
+
+const MIN_ZONE_SIZE = 16
+
+type ZoneOp =
+  | { mode: "draw"; id: string; x0: number; y0: number }
+  | { mode: "move"; id: string; ox: number; oy: number }
+  | {
+      mode: "resize"
+      id: string
+      handle: ZoneHandle
+      orig: { x: number; y: number; w: number; h: number }
+    }
+
+function normRect(x0: number, y0: number, x1: number, y1: number) {
+  return {
+    x: Math.min(x0, x1),
+    y: Math.min(y0, y1),
+    w: Math.abs(x1 - x0),
+    h: Math.abs(y1 - y0),
+  }
+}
 
 export function BoothMap() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -49,9 +73,30 @@ export function BoothMap() {
     cancelRepositioning,
     unassignCompany,
     getAssignmentForCompany,
+    blockMode,
+    setBlockMode,
+    zoneTool,
+    setZoneTool,
   } = useMapStore()
 
+  // Booths touched by the current block-paint stroke, shown before the server
+  // round-trip so the stroke feels immediate.
+  const [paintPreview, setPaintPreview] = useState<{
+    ids: Set<string>
+    adding: boolean
+  } | null>(null)
+  const paintRef = useRef<{
+    ids: Set<string>
+    adding: boolean
+    last: { x: number; y: number }
+  } | null>(null)
+  const paintRafRef = useRef<number | null>(null)
+  const zoneOpRef = useRef<ZoneOp | null>(null)
+
   const canvasDims = getCanvasDimensions()
+
+  // Painting a block or drawing a zone owns the pointer, so panning is off.
+  const pointerToolActive = blockMode || zoneTool !== null
 
   // Fit container
   useEffect(() => {
@@ -68,34 +113,74 @@ export function BoothMap() {
     return () => window.removeEventListener("resize", updateSize)
   }, [])
 
+  const zoomFit = useCallback(() => {
+    if (stageSize.width <= 0 || stageSize.height <= 0) return
+    const scaleX = stageSize.width / canvasDims.width
+    const scaleY = stageSize.height / canvasDims.height
+    const fitScale = Math.min(scaleX, scaleY, 1) * 0.95
+    setScale(fitScale)
+    setPosition({
+      x: (stageSize.width - canvasDims.width * fitScale) / 2,
+      y: (stageSize.height - canvasDims.height * fitScale) / 2,
+    })
+  }, [stageSize.width, stageSize.height, canvasDims.width, canvasDims.height])
+
   // Initial fit
   useEffect(() => {
-    if (stageSize.width > 0 && stageSize.height > 0) {
-      const scaleX = stageSize.width / canvasDims.width
-      const scaleY = stageSize.height / canvasDims.height
-      const fitScale = Math.min(scaleX, scaleY, 1) * 0.95
-      setScale(fitScale)
-      setPosition({
-        x: (stageSize.width - canvasDims.width * fitScale) / 2,
-        y: (stageSize.height - canvasDims.height * fitScale) / 2,
-      })
-    }
-  }, [stageSize.width, stageSize.height, canvasDims.width, canvasDims.height])
+    zoomFit()
+  }, [zoomFit])
+
+  // Button zoom keeps the center of the viewport pinned, the way wheel zoom
+  // keeps the cursor pinned.
+  const zoomBy = useCallback(
+    (factor: number) => {
+      const oldScale = scaleRef.current
+      const next = Math.max(0.2, Math.min(3, oldScale * factor))
+      if (next === oldScale) return
+      const cx = stageSize.width / 2
+      const cy = stageSize.height / 2
+      const pointTo = {
+        x: (cx - positionRef.current.x) / oldScale,
+        y: (cy - positionRef.current.y) / oldScale,
+      }
+      setScale(next)
+      setPosition({ x: cx - pointTo.x * next, y: cy - pointTo.y * next })
+    },
+    [stageSize.width, stageSize.height]
+  )
 
   // Escape key to cancel repositioning or close context menu
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      const state = useMapStore.getState()
+
       if (e.key === "Escape") {
-        if (useMapStore.getState().contextMenu) {
+        if (state.contextMenu) {
           setContextMenu(null)
+        } else if (state.zoneTool) {
+          setZoneTool(null)
+        } else if (state.blockMode) {
+          setBlockMode(false)
         } else if (repositioning) {
           cancelRepositioning()
+        }
+        return
+      }
+
+      // Delete removes the selected zone, but not while the user is typing a
+      // company name into a filter box.
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const tag = (e.target as HTMLElement | null)?.tagName
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return
+        if (state.selectedZoneId && state.zoneTool?.kind === "draw") {
+          state.removeZoneRegion(state.selectedZoneId)
+          e.preventDefault()
         }
       }
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [repositioning, cancelRepositioning, setContextMenu])
+  }, [repositioning, cancelRepositioning, setContextMenu, setZoneTool, setBlockMode])
 
   // Register PNG export function
   useEffect(() => {
@@ -375,6 +460,201 @@ export function BoothMap() {
     [assignCompany, setDraggedCompany, setHoveredBooths]
   )
 
+  // ---- Block painting and industry-zone drawing ----
+
+  const finishPointerOp = useCallback(() => {
+    const state = useMapStore.getState()
+
+    const paint = paintRef.current
+    if (paint) {
+      paintRef.current = null
+      if (paintRafRef.current) {
+        cancelAnimationFrame(paintRafRef.current)
+        paintRafRef.current = null
+      }
+      const ids = [...paint.ids]
+      const action = paint.adding ? state.blockBooths : state.unblockBooths
+      // The preview stays up until the write lands. Clearing it first would
+      // flash every booth back to unblocked for the length of the round-trip.
+      action(ids, state.activeDay).finally(() => setPaintPreview(null))
+      return
+    }
+
+    const op = zoneOpRef.current
+    if (!op) return
+    zoneOpRef.current = null
+
+    // A click without a real drag isn't a zone, it's a misfire.
+    if (op.mode === "draw") {
+      const region = state.industryZones.regions.find((r) => r.id === op.id)
+      if (region && (region.w < MIN_ZONE_SIZE || region.h < MIN_ZONE_SIZE)) {
+        state.removeZoneRegion(op.id)
+      }
+    }
+  }, [])
+
+  // Released outside the stage still ends the stroke.
+  useEffect(() => {
+    window.addEventListener("mouseup", finishPointerOp)
+    return () => window.removeEventListener("mouseup", finishPointerOp)
+  }, [finishPointerOp])
+
+  const handleStageMouseDown = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (e.evt.button !== 0) return
+      // pageToCanvas, not Konva's getRelativePointerPosition: the stage carries
+      // its own pan/zoom, and this is the conversion the repositioning path
+      // already uses successfully.
+      const pos = pageToCanvas(e.evt.clientX, e.evt.clientY)
+
+      const state = useMapStore.getState()
+
+      if (state.blockMode) {
+        const booth = getBoothAt(pos.x, pos.y)
+        if (!booth) return
+        // Whether the stroke blocks or unblocks is decided by the booth it
+        // started on, so dragging back over it doesn't flip-flop.
+        const adding = !state.getBlockedBoothIds(state.activeDay).has(booth.id)
+        paintRef.current = { ids: new Set([booth.id]), adding, last: pos }
+        setPaintPreview({ ids: new Set([booth.id]), adding })
+        return
+      }
+
+      const tool = state.zoneTool
+      if (!tool) return
+
+      const name = e.target.name()
+      const attrs = e.target.attrs as { regionId?: string; handle?: ZoneHandle }
+
+      if (tool.kind === "erase") {
+        if (name === "zone-region" && attrs.regionId) {
+          state.removeZoneRegion(attrs.regionId)
+        }
+        return
+      }
+
+      if (name === "zone-handle" && attrs.regionId && attrs.handle) {
+        const region = state.industryZones.regions.find(
+          (r) => r.id === attrs.regionId
+        )
+        if (!region) return
+        state.setSelectedZoneId(region.id)
+        zoneOpRef.current = {
+          mode: "resize",
+          id: region.id,
+          handle: attrs.handle,
+          orig: { x: region.x, y: region.y, w: region.w, h: region.h },
+        }
+        return
+      }
+
+      if (name === "zone-region" && attrs.regionId) {
+        const region = state.industryZones.regions.find(
+          (r) => r.id === attrs.regionId
+        )
+        if (!region) return
+        state.setSelectedZoneId(region.id)
+        zoneOpRef.current = {
+          mode: "move",
+          id: region.id,
+          ox: pos.x - region.x,
+          oy: pos.y - region.y,
+        }
+        return
+      }
+
+      const id = `zr-${Math.random().toString(36).slice(2, 10)}`
+      zoneOpRef.current = { mode: "draw", id, x0: pos.x, y0: pos.y }
+      state.addZoneRegion({
+        id,
+        labelId: tool.labelId,
+        x: pos.x,
+        y: pos.y,
+        w: 0,
+        h: 0,
+      })
+    },
+    []
+  )
+
+  const handleStageMouseMove = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      const paint = paintRef.current
+      const op = zoneOpRef.current
+      if (!paint && !op) return
+
+      // pageToCanvas, not Konva's getRelativePointerPosition: the stage carries
+      // its own pan/zoom, and this is the conversion the repositioning path
+      // already uses successfully.
+      const pos = pageToCanvas(e.evt.clientX, e.evt.clientY)
+
+      if (paint) {
+        const dx = pos.x - paint.last.x
+        const dy = pos.y - paint.last.y
+        const distance = Math.hypot(dx, dy)
+        // Half a booth per step is dense enough that nothing can be stepped over.
+        const steps = Math.max(1, Math.ceil(distance / (BOOTH_WIDTH / 2)))
+
+        let added = false
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps
+          const booth = getBoothAt(paint.last.x + dx * t, paint.last.y + dy * t)
+          if (booth && !paint.ids.has(booth.id)) {
+            paint.ids.add(booth.id)
+            added = true
+          }
+        }
+        paint.last = pos
+
+        if (added) {
+          if (!paintRafRef.current) {
+            paintRafRef.current = requestAnimationFrame(() => {
+              paintRafRef.current = null
+              const current = paintRef.current
+              if (!current) return
+              setPaintPreview({
+                ids: new Set(current.ids),
+                adding: current.adding,
+              })
+            })
+          }
+        }
+        return
+      }
+      if (!op) return
+
+      const { updateZoneRegion } = useMapStore.getState()
+
+      if (op.mode === "draw") {
+        updateZoneRegion(op.id, normRect(op.x0, op.y0, pos.x, pos.y))
+        return
+      }
+
+      if (op.mode === "move") {
+        updateZoneRegion(op.id, { x: pos.x - op.ox, y: pos.y - op.oy })
+        return
+      }
+
+      const o = op.orig
+      let x1 = o.x
+      let y1 = o.y
+      let x2 = o.x + o.w
+      let y2 = o.y + o.h
+      if (op.handle.includes("n")) y1 = pos.y
+      if (op.handle.includes("s")) y2 = pos.y
+      if (op.handle.includes("w")) x1 = pos.x
+      if (op.handle.includes("e")) x2 = pos.x
+      const n = normRect(x1, y1, x2, y2)
+      updateZoneRegion(op.id, {
+        x: n.x,
+        y: n.y,
+        w: Math.max(12, n.w),
+        h: Math.max(12, n.h),
+      })
+    },
+    []
+  )
+
   const handleDragLeave = useCallback(() => {
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current)
@@ -438,6 +718,12 @@ export function BoothMap() {
         )
       })()}
 
+      <MapToolbar
+        onZoomIn={() => zoomBy(1.2)}
+        onZoomOut={() => zoomBy(1 / 1.2)}
+        onZoomFit={zoomFit}
+      />
+
       <Stage
         ref={stageRef as React.RefObject<Konva.Stage>}
         width={stageSize.width}
@@ -446,8 +732,10 @@ export function BoothMap() {
         scaleY={scale}
         x={position.x}
         y={position.y}
-        draggable={!repositioning}
+        draggable={!repositioning && !pointerToolActive}
         onWheel={handleWheel}
+        onMouseDown={handleStageMouseDown}
+        onMouseMove={handleStageMouseMove}
         onDragEnd={(e) => {
           setContextMenu(null)
           setPosition({ x: e.target.x(), y: e.target.y() })
@@ -455,13 +743,20 @@ export function BoothMap() {
         onClick={(e) => {
           if (e.evt.button !== 0) return
           setContextMenu(null)
+          if (pointerToolActive) return
           handleCanvasClick(e)
         }}
+        style={
+          pointerToolActive ? { cursor: "crosshair" } : undefined
+        }
       >
         <Layer>
-          <BoothGrid />
+          <BoothGrid paintPreview={paintPreview} />
+          <IndustryZones />
         </Layer>
       </Stage>
+
+      <MapLegend />
 
       {/* Tooltip overlay (hide when context menu is open) */}
       {tooltip && !repositioning && !contextMenu && (

@@ -18,6 +18,32 @@ export type IndustryRangeSpec =
 
 export type IndustryRangeConfig = Partial<Record<Industry, IndustryRangeSpec[]>>
 
+export type RegistrationStatus = "CONFIRMED" | "PENDING" | "CANCELED"
+
+// A named color used by the visual industry guide overlay. Distinct from the
+// `Industry` enum, which is a fixed taxonomy used for auto-placement ranges.
+export interface IndustryZoneLabel {
+  id: string
+  name: string
+  color: string
+}
+
+// A rectangle drawn over the map in canvas coordinates.
+export interface IndustryZoneRegion {
+  id: string
+  labelId: string
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface IndustryZoneConfig {
+  show: boolean
+  labels: IndustryZoneLabel[]
+  regions: IndustryZoneRegion[]
+}
+
 export interface Company {
   id: string
   name: string
@@ -27,6 +53,11 @@ export interface Company {
   hasQueue: boolean
   industry: Industry
   isPlaceholder: boolean
+  status: RegistrationStatus
+  contactName: string | null
+  contactEmail: string | null
+  contactPhone: string | null
+  registeredOn: string | null
   draftId: string
 }
 
@@ -45,8 +76,45 @@ export interface Draft {
   companies: Company[]
   assignments: BoothAssignment[]
   industryRanges?: IndustryRangeConfig | null
+  industryZones?: IndustryZoneConfig | null
+  capacityPerDay: number
   createdAt: string
   updatedAt: string
+}
+
+// One parsed registration from an imported report, before it hits the database.
+export interface ParsedRegistration {
+  name: string
+  days: Day[]
+  sponsorship: Sponsorship
+  boothCount: number
+  boothCountFromReport: boolean
+  assignedBooths: string[]
+  industry: Industry
+  status: RegistrationStatus
+  contactName: string
+  contactEmail: string
+  contactPhone: string
+  registeredOn: string
+}
+
+export interface ImportPreviewItem {
+  name: string
+  registeredOn: string
+  kind: "new" | "updated" | "unchanged"
+  changes: string[]
+  booths?: string[]
+}
+
+export interface ImportPreview {
+  parsed: number
+  created: number
+  updated: number
+  unchanged: number
+  removed: string[]
+  items: ImportPreviewItem[]
+  warnings: string[]
+  placed: number
 }
 
 export interface BoothDefinition {
@@ -64,4 +132,11 @@ export interface SidebarFilter {
   search: string
   sponsorship: Sponsorship | "all"
   assignmentStatus: "assigned" | "unassigned" | "all"
+}
+
+// Booths per day, split the way the capacity dashboard reports them.
+export interface DayCapacity {
+  confirmed: number
+  pending: number
+  blocked: number
 }

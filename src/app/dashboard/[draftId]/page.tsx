@@ -18,6 +18,7 @@ import { CompanySidebar } from "@/components/sidebar/company-sidebar"
 import { GoogleSheetsExportCard } from "@/components/sidebar/google-sheets-export-card"
 import { ImportDialog } from "@/components/sidebar/import-dialog"
 import { IndustryRangeDialog } from "@/components/sidebar/industry-range-dialog"
+import { CapacityDashboard } from "@/components/dashboard/capacity-dashboard"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 const BoothMap = dynamic(
@@ -28,6 +29,8 @@ import { ArrowLeft, Download, Upload } from "lucide-react"
 import type { Day, IndustryRangeConfig } from "@/types"
 import { toast } from "sonner"
 import { AutoPlaceConfirmationDialog } from "@/components/sidebar/auto-complete-confirmation"
+
+type View = "dashboard" | "map"
 
 export default function EditorPage() {
   const params = useParams()
@@ -41,6 +44,7 @@ export default function EditorPage() {
   const [googleSheetsOpen, setGoogleSheetsOpen] = useState(false)
   const [autoCompleteConfirmOpen, setAutoCompleteConfirmOpen] = useState(false)
   const [industryRangesOpen, setIndustryRangesOpen] = useState(false)
+  const [view, setView] = useState<View>("map")
   const [googleSheetUrl, setGoogleSheetUrl] = useState("")
   const [googleWorksheetName, setGoogleWorksheetName] = useState("Assignments")
   const [googleConnectionEmail, setGoogleConnectionEmail] = useState<string | null>(null)
@@ -52,6 +56,8 @@ export default function EditorPage() {
     setDraftId,
     setCompanies,
     setAssignments,
+    setCapacityPerDay,
+    setIndustryZones,
   } = useMapStore()
 
   const loadDraft = useCallback(async () => {
@@ -70,13 +76,24 @@ export default function EditorPage() {
       setDraftId(draft.id)
       setCompanies(draft.companies)
       setAssignments(draft.assignments)
+      setCapacityPerDay(draft.capacityPerDay)
+      setIndustryZones(draft.industryZones)
       setGoogleSheetUrl(draft.googleSheetUrl ?? "")
       setGoogleWorksheetName(draft.googleWorksheetName ?? "Assignments")
       setGoogleConnectionEmail(draft.googleConnection?.email ?? null)
     } else {
       router.push("/dashboard")
     }
-  }, [apiFetch, draftId, setDraftId, setCompanies, setAssignments, router])
+  }, [
+    apiFetch,
+    draftId,
+    setDraftId,
+    setCompanies,
+    setAssignments,
+    setCapacityPerDay,
+    setIndustryZones,
+    router,
+  ])
 
   useEffect(() => {
     if (!loading && !user) {
@@ -88,8 +105,10 @@ export default function EditorPage() {
     if (user) loadDraft() // eslint-disable-line react-hooks/set-state-in-effect
   }, [user, loadDraft])
 
-  async function handleExportCSV() {
-    const url = `/api/drafts/${draftId}/export`
+  async function handleExportCSV(format?: "report") {
+    const url = format
+      ? `/api/drafts/${draftId}/export?format=${format}`
+      : `/api/drafts/${draftId}/export`
 
     const res = await apiFetch(url)
     if (res.ok) {
@@ -97,7 +116,9 @@ export default function EditorPage() {
       const downloadUrl = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = downloadUrl
-      a.download = `${draftName}-Assignments.csv`
+      a.download = format
+        ? `${draftName}-Placement-Report.csv`
+        : `${draftName}-Assignments.csv`
       a.click()
       URL.revokeObjectURL(downloadUrl)
       toast.success("Export downloaded")
@@ -191,10 +212,12 @@ export default function EditorPage() {
     )
   }
 
+  const onMap = view === "map"
+
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       {/* Header */}
-      <header className="flex items-center justify-between border-b bg-white px-4 py-2">
+      <header className="flex items-center justify-between gap-3 border-b bg-white px-4 py-2">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -207,32 +230,43 @@ export default function EditorPage() {
           <h1 className="text-lg font-semibold">{draftName}</h1>
         </div>
 
+        <Tabs value={view} onValueChange={(v) => setView(v as View)}>
+          <TabsList>
+            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+            <TabsTrigger value="map">Booth Map</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
         <div className="flex items-center gap-2">
-          <Tabs
-            value={activeDay}
-            onValueChange={(v) => setActiveDay(v as Day)}
-          >
-            <TabsList>
-              <TabsTrigger value="WEDNESDAY">Wednesday</TabsTrigger>
-              <TabsTrigger value="THURSDAY">Thursday</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {onMap && (
+            <>
+              <Tabs
+                value={activeDay}
+                onValueChange={(v) => setActiveDay(v as Day)}
+              >
+                <TabsList>
+                  <TabsTrigger value="WEDNESDAY">Wednesday</TabsTrigger>
+                  <TabsTrigger value="THURSDAY">Thursday</TabsTrigger>
+                </TabsList>
+              </Tabs>
 
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => setIndustryRangesOpen(true)}
-          >
-            Industry Ranges
-          </Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setIndustryRangesOpen(true)}
+              >
+                Industry Ranges
+              </Button>
 
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => setAutoCompleteConfirmOpen(true)}
-          >
-            Auto-Place
-          </Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setAutoCompleteConfirmOpen(true)}
+              >
+                Auto-Place
+              </Button>
+            </>
+          )}
 
           <Button
             variant="outline"
@@ -259,8 +293,11 @@ export default function EditorPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleExportCSV}>
+              <DropdownMenuItem onClick={() => handleExportCSV()}>
                 Assignments (CSV)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportCSV("report")}>
+                Placement report (CSV)
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => {
                 const fn = useMapStore.getState().exportMapFn
@@ -275,14 +312,20 @@ export default function EditorPage() {
       </header>
 
       {/* Main content */}
-      <div className="flex flex-1 overflow-hidden">
-        <CompanySidebar />
-        <div className="flex-1 overflow-hidden bg-gray-100 p-4">
-          <div className="h-[calc(100%-0rem)] overflow-hidden rounded-lg border bg-white">
-            <BoothMap />
+      {onMap ? (
+        <div className="flex flex-1 overflow-hidden">
+          <CompanySidebar />
+          <div className="flex-1 overflow-hidden bg-gray-100 p-4">
+            <div className="h-full overflow-hidden rounded-lg border bg-white">
+              <BoothMap />
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto bg-gray-50">
+          <CapacityDashboard />
+        </div>
+      )}
 
       <Dialog open={googleSheetsOpen} onOpenChange={setGoogleSheetsOpen}>
         <DialogContent className="sm:max-w-2xl">
