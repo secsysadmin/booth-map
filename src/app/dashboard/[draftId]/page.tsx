@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import dynamic from "next/dynamic"
 import { CompanySidebar } from "@/components/sidebar/company-sidebar"
-import { GoogleSheetsExportCard } from "@/components/sidebar/google-sheets-export-card"
+import { GoogleSheetsExportCard, type GoogleSyncStatus } from "@/components/sidebar/google-sheets-export-card"
 import { ImportDialog } from "@/components/sidebar/import-dialog"
 import { IndustryRangeDialog } from "@/components/sidebar/industry-range-dialog"
 import { CapacityDashboard } from "@/components/dashboard/capacity-dashboard"
@@ -48,6 +48,8 @@ export default function EditorPage() {
   const [googleSheetUrl, setGoogleSheetUrl] = useState("")
   const [googleWorksheetName, setGoogleWorksheetName] = useState("Assignments")
   const [googleConnectionEmail, setGoogleConnectionEmail] = useState<string | null>(null)
+  const [googleAutoSync, setGoogleAutoSync] = useState(true)
+  const [googleSyncStatus, setGoogleSyncStatus] = useState<GoogleSyncStatus>({ syncedAt: null, error: null })
   const [googleBusy, setGoogleBusy] = useState(false)
 
   const {
@@ -81,6 +83,11 @@ export default function EditorPage() {
       setGoogleSheetUrl(draft.googleSheetUrl ?? "")
       setGoogleWorksheetName(draft.googleWorksheetName ?? "Assignments")
       setGoogleConnectionEmail(draft.googleConnection?.email ?? null)
+      setGoogleAutoSync(draft.googleAutoSync !== false)
+      setGoogleSyncStatus({
+        syncedAt: draft.googleSyncedAt ?? null,
+        error: draft.googleSyncError ?? null,
+      })
     } else {
       router.push("/dashboard")
     }
@@ -144,6 +151,36 @@ export default function EditorPage() {
     }
   }
 
+  async function refreshGoogleSyncStatus() {
+    const res = await apiFetch(`/api/drafts/${draftId}`)
+    if (!res.ok) return
+    const draft = await res.json()
+    setGoogleSyncStatus({
+      syncedAt: draft.googleSyncedAt ?? null,
+      error: draft.googleSyncError ?? null,
+    })
+  }
+
+  function openGoogleSheets() {
+    setGoogleSheetsOpen(true)
+    refreshGoogleSyncStatus()
+  }
+
+  async function handleGoogleAutoSyncChange(enabled: boolean) {
+    setGoogleAutoSync(enabled)
+    const res = await apiFetch(`/api/drafts/${draftId}`, {
+      method: "PUT",
+      body: JSON.stringify({ googleAutoSync: enabled }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      toast.success(enabled ? "Auto-sync on" : "Auto-sync off")
+    } else {
+      setGoogleAutoSync(!enabled)
+      toast.error(data.error || "Unable to change auto-sync")
+    }
+  }
+
   async function handleConnectGoogle() {
     setGoogleBusy(true)
     const redirectTo = encodeURIComponent(window.location.pathname + window.location.search)
@@ -183,6 +220,7 @@ export default function EditorPage() {
     })
     const data = await res.json().catch(() => ({}))
     setGoogleBusy(false)
+    refreshGoogleSyncStatus()
     if (res.ok) {
       toast.success(data.message || "Google Sheet updated")
       await loadDraft()
@@ -271,7 +309,7 @@ export default function EditorPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setGoogleSheetsOpen(true)}
+            onClick={openGoogleSheets}
           >
             📗Google Sheets
           </Button>
@@ -336,9 +374,12 @@ export default function EditorPage() {
             googleSheetUrl={googleSheetUrl}
             googleWorksheetName={googleWorksheetName}
             googleConnectionEmail={googleConnectionEmail}
+            googleAutoSync={googleAutoSync}
+            googleSyncStatus={googleSyncStatus}
             googleBusy={googleBusy}
             onGoogleSheetUrlChange={setGoogleSheetUrl}
             onGoogleWorksheetNameChange={setGoogleWorksheetName}
+            onGoogleAutoSyncChange={handleGoogleAutoSyncChange}
             onSaveGoogleSettings={handleSaveGoogleSettings}
             onConnectGoogle={handleConnectGoogle}
             onTestGoogleConnection={handleTestGoogleConnection}

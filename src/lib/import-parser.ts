@@ -364,6 +364,46 @@ export function registrationKey(name: string, registeredOn: string | null): stri
   return `${name.trim().toLowerCase().replace(/\s+/g, " ")}|${registeredOn || ""}`
 }
 
+export interface ExistingRegistration {
+  sponsorship: Sponsorship
+  status: RegistrationStatus
+  days: Day[]
+  industry: Industry
+  contactEmail?: string | null
+}
+
+function matchScore(existing: ExistingRegistration, incoming: ParsedRegistration): number {
+  let score = diffRegistration(existing, incoming).length
+  if (
+    incoming.contactEmail &&
+    existing.contactEmail &&
+    incoming.contactEmail.toLowerCase() !== existing.contactEmail.toLowerCase()
+  ) {
+    score += 0.5
+  }
+  return score
+}
+
+export function matchRegistrations<E extends ExistingRegistration>(
+  incoming: ParsedRegistration[],
+  existing: E[]
+): { matched: (E | undefined)[]; unmatched: E[] } {
+  const pairs: { i: number; e: number; score: number }[] = []
+  incoming.forEach((r, i) => {
+    existing.forEach((c, e) => pairs.push({ i, e, score: matchScore(c, r) }))
+  })
+  pairs.sort((a, b) => a.score - b.score || a.i - b.i || a.e - b.e)
+
+  const matched: (E | undefined)[] = new Array(incoming.length).fill(undefined)
+  const usedExisting = new Set<number>()
+  for (const p of pairs) {
+    if (matched[p.i] !== undefined || usedExisting.has(p.e)) continue
+    matched[p.i] = existing[p.e]
+    usedExisting.add(p.e)
+  }
+  return { matched, unmatched: existing.filter((_, e) => !usedExisting.has(e)) }
+}
+
 function dayLabel(days: Day[]): string {
   const wed = days.includes("WEDNESDAY")
   const thu = days.includes("THURSDAY")
@@ -375,12 +415,7 @@ function dayLabel(days: Day[]): string {
 
 /** Human-readable list of what an import would change about an existing row. */
 export function diffRegistration(
-  existing: {
-    sponsorship: Sponsorship
-    status: RegistrationStatus
-    days: Day[]
-    industry: Industry
-  },
+  existing: ExistingRegistration,
   incoming: ParsedRegistration
 ): string[] {
   const changes: string[] = []

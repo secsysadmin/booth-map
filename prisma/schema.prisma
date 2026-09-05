@@ -45,6 +45,9 @@ model Draft {
   googleSpreadsheetId String?
   googleWorksheetName String?
   googleConnectionId  String?
+  googleAutoSync      Boolean           @default(true)
+  googleSyncedAt      DateTime?
+  googleSyncError     String?
   assignments         BoothAssignment[]
   companies           Company[]
   user                User              @relation(fields: [userId], references: [id])

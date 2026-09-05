@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { Prisma } from "@prisma/client"
@@ -10,14 +11,27 @@ import type {
 } from "@/types"
 import { SPONSORSHIP_CONFIG } from "@/lib/constants"
 import { getBoothById } from "@/lib/booth-geometry"
+import { scheduleGoogleSheetSync } from "@/lib/google-sync"
 import {
   diffRegistration,
+  matchRegistrations,
   parseReport,
   parseRows,
   registrationKey,
 } from "@/lib/import-parser"
 
 type ImportMode = "merge" | "replace"
+
+function groupBy<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>()
+  for (const item of items) {
+    const key = keyOf(item)
+    const group = groups.get(key)
+    if (group) group.push(item)
+    else groups.set(key, [item])
+  }
+  return groups
+}
 
 /**
  * Reads the request body in either shape:
@@ -105,24 +119,10 @@ export async function POST(
   const existingCompanies = await prisma.company.findMany({
     where: { draftId: id, isPlaceholder: false },
   })
-  const existingByKey = new Map(
-    existingCompanies.map((c) => [registrationKey(c.name, c.registeredOn), c])
+  const existingByKey = groupBy(existingCompanies, (c) =>
+    registrationKey(c.name, c.registeredOn)
   )
-
-  // Last row wins if a report lists the same registration twice. That silently
-  // shrinks the count against the file, so each collapsed row is called out.
-  const incomingByKey = new Map<string, ParsedRegistration>()
-  for (const r of records) {
-    const key = registrationKey(r.name, r.registeredOn)
-    if (incomingByKey.has(key)) {
-      warnings.push(
-        `“${r.name}” appears twice with the same registration date${
-          r.registeredOn ? ` (${r.registeredOn})` : ""
-        }. Only the last row was kept.`
-      )
-    }
-    incomingByKey.set(key, r)
-  }
+  const incomingByKey = groupBy(records, (r) => registrationKey(r.name, r.registeredOn))
 
   const items: ImportPreviewItem[] = []
   let createdCount = 0
@@ -130,82 +130,86 @@ export async function POST(
   let unchangedCount = 0
 
   type Resolved = {
-    key: string
     r: ParsedRegistration
     existing: (typeof existingCompanies)[number] | undefined
+    companyId: string
     boothCount: number
     dropsAssignment: boolean
   }
 
   const resolved: Resolved[] = []
+  const matchedExistingIds = new Set<string>()
 
-  for (const [key, r] of incomingByKey) {
-    const existing = existingByKey.get(key)
+  for (const [key, group] of incomingByKey) {
+    const { matched } = matchRegistrations(group, existingByKey.get(key) ?? [])
 
-    if (!existing) {
-      createdCount++
-      items.push({
-        name: r.name,
-        registeredOn: r.registeredOn,
-        kind: "new",
-        changes: [],
-        booths: r.assignedBooths,
-      })
+    for (const [i, r] of group.entries()) {
+      const existing = matched[i]
+
+      if (!existing) {
+        createdCount++
+        items.push({
+          name: r.name,
+          registeredOn: r.registeredOn,
+          kind: "new",
+          changes: [],
+          booths: r.assignedBooths,
+        })
+        resolved.push({
+          r,
+          existing: undefined,
+          companyId: randomUUID(),
+          boothCount: r.boothCount,
+          dropsAssignment: false,
+        })
+        continue
+      }
+      matchedExistingIds.add(existing.id)
+
+      // A hand-set booth count survives a re-import, since a report without a
+      // booth column has no idea about special deals. It's dropped when the tier
+      // changes, because the old custom number almost certainly no longer
+      // applies — and a count the report states outright beats both.
+      const wasCustomized =
+        existing.boothCount !== SPONSORSHIP_CONFIG[existing.sponsorship].booths
+      const keepCustomCount =
+        wasCustomized &&
+        existing.sponsorship === r.sponsorship &&
+        !r.boothCountFromReport
+      const boothCount = keepCustomCount ? existing.boothCount : r.boothCount
+
+      const changes = diffRegistration(existing, r)
+      if (boothCount !== existing.boothCount) {
+        changes.push(`booths ${existing.boothCount} → ${boothCount}`)
+      }
+
+      if (changes.length) {
+        updatedCount++
+        items.push({
+          name: r.name,
+          registeredOn: r.registeredOn,
+          kind: "updated",
+          changes,
+          booths: r.assignedBooths,
+        })
+      } else {
+        unchangedCount++
+      }
+
       resolved.push({
-        key,
         r,
-        existing: undefined,
-        boothCount: r.boothCount,
-        dropsAssignment: false,
+        existing,
+        companyId: existing.id,
+        boothCount,
+        dropsAssignment:
+          boothCount !== existing.boothCount || r.status !== "CONFIRMED",
       })
-      continue
     }
-
-    // A hand-set booth count survives a re-import, since a report without a
-    // booth column has no idea about special deals. It's dropped when the tier
-    // changes, because the old custom number almost certainly no longer
-    // applies — and a count the report states outright beats both.
-    const wasCustomized =
-      existing.boothCount !== SPONSORSHIP_CONFIG[existing.sponsorship].booths
-    const keepCustomCount =
-      wasCustomized &&
-      existing.sponsorship === r.sponsorship &&
-      !r.boothCountFromReport
-    const boothCount = keepCustomCount ? existing.boothCount : r.boothCount
-
-    const changes = diffRegistration(existing, r)
-    if (boothCount !== existing.boothCount) {
-      changes.push(`booths ${existing.boothCount} → ${boothCount}`)
-    }
-
-    if (changes.length) {
-      updatedCount++
-      items.push({
-        name: r.name,
-        registeredOn: r.registeredOn,
-        kind: "updated",
-        changes,
-        booths: r.assignedBooths,
-      })
-    } else {
-      unchangedCount++
-    }
-
-    resolved.push({
-      key,
-      r,
-      existing,
-      boothCount,
-      dropsAssignment:
-        boothCount !== existing.boothCount || r.status !== "CONFIRMED",
-    })
   }
 
   const removedCompanies =
     mode === "replace"
-      ? existingCompanies.filter(
-          (c) => !incomingByKey.has(registrationKey(c.name, c.registeredOn))
-        )
+      ? existingCompanies.filter((c) => !matchedExistingIds.has(c.id))
       : []
 
   const existingAssignments = await prisma.boothAssignment.findMany({
@@ -227,7 +231,7 @@ export async function POST(
     day: a.day as Day | null,
   }))
 
-  const placements: { key: string; boothIds: string[]; day: Day | null }[] = []
+  const placements: { companyId: string; boothIds: string[]; day: Day | null }[] = []
   let unconfirmedWithBooths = 0
   let alreadyOnMap = 0
 
@@ -272,7 +276,7 @@ export async function POST(
       continue
     }
 
-    placements.push({ key: x.key, boothIds: r.assignedBooths, day })
+    placements.push({ companyId: x.companyId, boothIds: r.assignedBooths, day })
     claimed.push({ boothIds: r.assignedBooths, day })
   }
 
@@ -289,7 +293,7 @@ export async function POST(
 
   if (preview) {
     return NextResponse.json({
-      parsed: incomingByKey.size,
+      parsed: records.length,
       created: createdCount,
       updated: updatedCount,
       unchanged: unchangedCount,
@@ -300,7 +304,7 @@ export async function POST(
     })
   }
 
-  if (incomingByKey.size === 0) {
+  if (records.length === 0) {
     return NextResponse.json(
       { error: "Nothing could be parsed from that report" },
       { status: 400 }
@@ -317,6 +321,7 @@ export async function POST(
 
     if (!existing) {
       toCreate.push({
+        id: x.companyId,
         name: r.name,
         days: r.days,
         sponsorship: r.sponsorship,
@@ -350,12 +355,7 @@ export async function POST(
     )
   }
 
-  const createdCompanies = toCreate.length
-    ? await prisma.company.createManyAndReturn({
-        data: toCreate,
-        select: { id: true, name: true, registeredOn: true },
-      })
-    : []
+  if (toCreate.length) await prisma.company.createMany({ data: toCreate })
 
   // Chunked so a very large report doesn't build one oversized statement.
   const UPDATE_CHUNK = 100
@@ -380,22 +380,12 @@ export async function POST(
     droppedAssignments = result.count
   }
 
-  const companyIdByKey = new Map<string, string>()
-  for (const c of createdCompanies) {
-    companyIdByKey.set(registrationKey(c.name, c.registeredOn), c.id)
-  }
-  for (const x of resolved) {
-    if (x.existing) companyIdByKey.set(x.key, x.existing.id)
-  }
-
-  const assignmentRows = placements
-    .map((p) => {
-      const companyId = companyIdByKey.get(p.key)
-      return companyId
-        ? { companyId, draftId: id, boothIds: p.boothIds, day: p.day }
-        : null
-    })
-    .filter((row): row is NonNullable<typeof row> => row !== null)
+  const assignmentRows = placements.map((p) => ({
+    companyId: p.companyId,
+    draftId: id,
+    boothIds: p.boothIds,
+    day: p.day,
+  }))
 
   let placedCount = 0
   if (assignmentRows.length) {
@@ -403,6 +393,7 @@ export async function POST(
     placedCount = result.count
   }
 
+  scheduleGoogleSheetSync(id)
   return NextResponse.json({
     success: true,
     created: createdCount,
@@ -412,6 +403,6 @@ export async function POST(
     placed: placedCount,
     droppedAssignments,
     errors: warnings,
-    total: incomingByKey.size,
+    total: records.length,
   })
 }

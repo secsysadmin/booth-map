@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getAuthUser } from "@/lib/auth"
+import { scheduleGoogleSheetSync } from "@/lib/google-sync"
 import type { RegistrationStatus } from "@/types"
 
 const VALID_STATUSES = new Set<RegistrationStatus>([
@@ -76,6 +77,7 @@ export async function PUT(
     await prisma.boothAssignment.deleteMany({ where: { companyId: id } })
   }
 
+  scheduleGoogleSheetSync(company.draftId)
   return NextResponse.json(updated)
 }
 
@@ -99,5 +101,6 @@ export async function DELETE(
   // Assignments cascade with the company.
   await prisma.company.delete({ where: { id } })
 
+  scheduleGoogleSheetSync(company.draftId)
   return NextResponse.json({ success: true })
 }

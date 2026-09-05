@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { google } from "googleapis"
 import { getAuthUser } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { parseGoogleSpreadsheetId, verifyGoogleSheetAccess, createGoogleErrorResponse, getGoogleOAuthClient, getGoogleTokensForUser } from "@/lib/google-auth"
-import { getDraftExportRows } from "@/lib/export"
-
-function quoteSheetName(name: string) {
-  return `'${name.replace(/'/g, "''")}'`
-}
+import { parseGoogleSpreadsheetId, verifyGoogleSheetAccess, createGoogleErrorResponse } from "@/lib/google-auth"
+import { syncDraftToGoogleSheet } from "@/lib/google-sync"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser(req)
@@ -56,62 +51,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (action === "test") {
       return NextResponse.json({ success: true, message: "Google Sheets connection verified" })
     }
-
-    const tokens = await getGoogleTokensForUser(user.id)
-    if (!tokens) {
-      throw new Error("Google authorization is not available. Please reconnect your Google account.")
-    }
-
-    const client = getGoogleOAuthClient()
-    client.setCredentials({
-      access_token: tokens.accessToken,
-      refresh_token: tokens.refreshToken,
-    })
-
-    const sheets = google.sheets({ version: "v4", auth: client })
-    const rows = await getDraftExportRows(id)
-    const sheetValues = [
-      ["Name", "DAYS REGISTERED", "ASSIGNMENT"],
-      ...rows.map((row) => [row.Name, row["DAYS REGISTERED"], row.ASSIGNMENT]),
-    ]
-
-    const spreadsheetMeta = await sheets.spreadsheets.get({ spreadsheetId })
-    const targetSheet = spreadsheetMeta.data.sheets?.find((sheet) => sheet.properties?.title === worksheetName)
-
-    let sheetId: number | null | undefined
-    if (!targetSheet) {
-      const created = await sheets.spreadsheets.batchUpdate({
-        spreadsheetId,
-        requestBody: {
-          requests: [{ addSheet: { properties: { title: worksheetName } } }],
-        },
-      })
-      sheetId = created.data.replies?.[0]?.addSheet?.properties?.sheetId
-    } else {
-      sheetId = targetSheet.properties?.sheetId
-    }
-
-    if (sheetId === null || sheetId === undefined) {
-      throw new Error("Google Sheets worksheet could not be prepared")
-    }
-
-    const sheetRange = `${quoteSheetName(worksheetName)}!A:Z`
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range: sheetRange,
-    })
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${quoteSheetName(worksheetName)}!A1`,
-      valueInputOption: "RAW",
-      requestBody: {
-        values: sheetValues,
-      },
-    })
-
-    return NextResponse.json({ success: true, message: "Google Sheet updated" })
   } catch (error) {
     return createGoogleErrorResponse(error, "Unable to update Google Sheet")
   }
+
+  const result = await syncDraftToGoogleSheet(id)
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+  return NextResponse.json({ success: true, message: "Google Sheet updated" })
 }

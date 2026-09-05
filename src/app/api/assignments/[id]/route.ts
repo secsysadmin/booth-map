@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getAuthUser } from "@/lib/auth"
+import { scheduleGoogleSheetSync } from "@/lib/google-sync"
 
 export async function DELETE(
   req: NextRequest,
@@ -22,5 +23,6 @@ export async function DELETE(
 
   await prisma.boothAssignment.delete({ where: { id } })
 
+  scheduleGoogleSheetSync(assignment.draftId)
   return NextResponse.json({ success: true })
 }

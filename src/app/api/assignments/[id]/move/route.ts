@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getAuthUser } from "@/lib/auth"
+import { scheduleGoogleSheetSync } from "@/lib/google-sync"
 
 export async function PUT(
   req: NextRequest,
@@ -63,5 +64,6 @@ export async function PUT(
     data,
   })
 
+  scheduleGoogleSheetSync(assignment.draftId)
   return NextResponse.json(updated)
 }

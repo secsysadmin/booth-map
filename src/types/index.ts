@@ -61,6 +61,14 @@ export interface Company {
   draftId: string
 }
 
+export interface NewCompanyInput {
+  name: string
+  sponsorship: Sponsorship
+  days: Day[]
+  boothCount: number
+  industry: Industry
+}
+
 export interface BoothAssignment {
   id: string
   companyId: string
@@ -78,6 +86,11 @@ export interface Draft {
   industryRanges?: IndustryRangeConfig | null
   industryZones?: IndustryZoneConfig | null
   capacityPerDay: number
+  googleSheetUrl?: string | null
+  googleWorksheetName?: string | null
+  googleAutoSync?: boolean
+  googleSyncedAt?: string | null
+  googleSyncError?: string | null
   createdAt: string
   updatedAt: string
 }

@@ -1,0 +1,3 @@
+ALTER TABLE "Draft" ADD COLUMN "googleAutoSync" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "Draft" ADD COLUMN "googleSyncedAt" TIMESTAMP(3);
+ALTER TABLE "Draft" ADD COLUMN "googleSyncError" TEXT;
