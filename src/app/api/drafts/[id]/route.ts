@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client"
 import { getAuthUser } from "@/lib/auth"
 import { getBoothById } from "@/lib/booth-geometry"
 import { scheduleGoogleSheetSync } from "@/lib/google-sync"
+import { parseGoogleSpreadsheetId } from "@/lib/google-auth"
 import { ALL_ROWS } from "@/lib/constants"
 import type {
   Industry,
@@ -221,6 +222,7 @@ export async function PUT(
     industryRanges?: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput
     industryZones?: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput
     googleSheetUrl?: string | null
+    googleSpreadsheetId?: string | null
     googleWorksheetName?: string | null
     googleAutoSync?: boolean
   } = {}
@@ -266,9 +268,21 @@ export async function PUT(
 
   if (Object.prototype.hasOwnProperty.call(body, "googleSheetUrl")) {
     if (typeof body.googleSheetUrl === "string") {
-      data.googleSheetUrl = body.googleSheetUrl.trim() || null
+      const url = body.googleSheetUrl.trim()
+      if (url && !parseGoogleSpreadsheetId(url)) {
+        return NextResponse.json(
+          { error: "That doesn't look like a Google Sheets link" },
+          { status: 400 }
+        )
+      }
+      data.googleSheetUrl = url || null
+      // Saving the link is enough to arm auto-sync; the id is what the
+      // writer keys on, so it's derived here rather than waiting for a
+      // Test Connection or Update click.
+      data.googleSpreadsheetId = url ? parseGoogleSpreadsheetId(url) : null
     } else if (body.googleSheetUrl === null) {
       data.googleSheetUrl = null
+      data.googleSpreadsheetId = null
     }
   }
 
@@ -296,8 +310,11 @@ export async function PUT(
   if (draft.count === 0)
     return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  // Turning sync on catches the sheet up on whatever changed while it was off.
-  if (data.googleAutoSync === true) scheduleGoogleSheetSync(id)
+  // Turning sync on, or linking a sheet, catches it up right away so the tab
+  // isn't empty until the next booth change.
+  if (data.googleAutoSync === true || data.googleSpreadsheetId) {
+    scheduleGoogleSheetSync(id)
+  }
 
   return NextResponse.json({ success: true })
 }
