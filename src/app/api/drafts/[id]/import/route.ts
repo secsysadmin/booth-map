@@ -119,11 +119,6 @@ export async function POST(
   const existingCompanies = await prisma.company.findMany({
     where: { draftId: id, isPlaceholder: false },
   })
-  // Rows are grouped by name + registration date, never collapsed by it: a
-  // company that books two booths as two separate registrations shows up twice
-  // in the report with the same timestamp, and both rows are real companies.
-  // Within a group, each incoming row is paired with the existing row it most
-  // resembles, so a re-import updates rows in place instead of duplicating them.
   const existingByKey = groupBy(existingCompanies, (c) =>
     registrationKey(c.name, c.registeredOn)
   )
@@ -137,8 +132,6 @@ export async function POST(
   type Resolved = {
     r: ParsedRegistration
     existing: (typeof existingCompanies)[number] | undefined
-    // The id the row will have once written — pre-generated for new companies
-    // so placements can be attached without a lookup after the insert.
     companyId: string
     boothCount: number
     dropsAssignment: boolean

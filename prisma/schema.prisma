@@ -45,8 +45,6 @@ model Draft {
   googleSpreadsheetId String?
   googleWorksheetName String?
   googleConnectionId  String?
-  // When on, every booth change rewrites the connected worksheet in the
-  // background. The last outcome is kept so the UI can show a stale sheet.
   googleAutoSync      Boolean           @default(true)
   googleSyncedAt      DateTime?
   googleSyncError     String?
@@ -70,9 +68,8 @@ model Company {
   contactName   String?
   contactEmail  String?
   contactPhone  String?
-  // Raw "Registered On" text from the report. Combined with name it groups a
-  // company's registrations on re-import, so a company that cancels and
-  // re-registers keeps both rows (as does one that registers twice at once).
+  // Raw "Registered On" text from the report. Combined with name it identifies a
+  // registration, so a company that cancels and re-registers keeps both rows.
   registeredOn  String?
   assignments   BoothAssignment[]
   draft         Draft              @relation(fields: [draftId], references: [id], onDelete: Cascade)

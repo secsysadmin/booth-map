@@ -39,11 +39,6 @@ export async function GET(
   return NextResponse.json(companies)
 }
 
-/**
- * Hand-adds one company to the draft. Only the name and tier are required;
- * days default to both, booths to the tier's allotment, and the row is created
- * confirmed so it can be placed right away.
- */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

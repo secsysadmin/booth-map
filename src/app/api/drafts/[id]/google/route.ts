@@ -55,7 +55,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return createGoogleErrorResponse(error, "Unable to update Google Sheet")
   }
 
-  // Same writer the background auto-sync uses, so the two can't drift apart.
   const result = await syncDraftToGoogleSheet(id)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
   return NextResponse.json({ success: true, message: "Google Sheet updated" })

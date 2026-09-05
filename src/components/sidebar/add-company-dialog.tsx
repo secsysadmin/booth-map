@@ -46,11 +46,6 @@ interface AddCompanyDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-/**
- * Hand-entry for a company that isn't in the registration report yet — a
- * walk-up, a late deal, or a test row. Created rows are confirmed and ready
- * to drag onto the map.
- */
 export function AddCompanyDialog({ open, onOpenChange }: AddCompanyDialogProps) {
   const { createCompany, activeDay } = useMapStore()
   const [name, setName] = useState("")
@@ -58,8 +53,6 @@ export function AddCompanyDialog({ open, onOpenChange }: AddCompanyDialogProps) 
   const [wednesday, setWednesday] = useState(true)
   const [thursday, setThursday] = useState(true)
   const [industry, setIndustry] = useState<Industry>("OTHER")
-  // Empty means "use the tier's default", so changing tier keeps working until
-  // the user types a number of their own.
   const [boothCountInput, setBoothCountInput] = useState("")
   const [saving, setSaving] = useState(false)
 
@@ -110,7 +103,6 @@ export function AddCompanyDialog({ open, onOpenChange }: AddCompanyDialogProps) 
       )
       handleOpenChange(false)
     } catch {
-      // Store already showed the error toast
     } finally {
       setSaving(false)
     }

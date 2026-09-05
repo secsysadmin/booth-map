@@ -276,9 +276,6 @@ export async function PUT(
         )
       }
       data.googleSheetUrl = url || null
-      // Saving the link is enough to arm auto-sync; the id is what the
-      // writer keys on, so it's derived here rather than waiting for a
-      // Test Connection or Update click.
       data.googleSpreadsheetId = url ? parseGoogleSpreadsheetId(url) : null
     } else if (body.googleSheetUrl === null) {
       data.googleSheetUrl = null
@@ -310,8 +307,6 @@ export async function PUT(
   if (draft.count === 0)
     return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  // Turning sync on, or linking a sheet, catches it up right away so the tab
-  // isn't empty until the next booth change.
   if (data.googleAutoSync === true || data.googleSpreadsheetId) {
     scheduleGoogleSheetSync(id)
   }

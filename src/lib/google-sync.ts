@@ -3,18 +3,12 @@ import { prisma } from "@/lib/prisma"
 import { getGoogleSheetsClientForUser } from "@/lib/google-auth"
 import { getDraftExportRows } from "@/lib/export"
 
-// A burst of drags becomes one rewrite shortly after the last one lands.
 const SYNC_DELAY_MS = 1500
 
 function quoteSheetName(name: string) {
   return `'${name.replace(/'/g, "''")}'`
 }
 
-/**
- * Rewrites the draft's connected worksheet with the current assignments. The
- * whole tab is replaced rather than patched, so the sheet always mirrors the
- * map exactly. Throws when nothing is connected or Google rejects the write.
- */
 export async function writeDraftToGoogleSheet(draftId: string): Promise<void> {
   const draft = await prisma.draft.findUnique({
     where: { id: draftId },
@@ -25,8 +19,6 @@ export async function writeDraftToGoogleSheet(draftId: string): Promise<void> {
     throw new Error("No Google Sheet is connected to this draft")
   }
 
-  // The connection pinned to the draft is preferred; a draft configured before
-  // connections were pinned falls back to its owner's account.
   const sheets = await getGoogleSheetsClientForUser(
     draft.googleConnection?.userId ?? draft.userId
   )
@@ -38,8 +30,6 @@ export async function writeDraftToGoogleSheet(draftId: string): Promise<void> {
 
   const spreadsheetId = draft.googleSpreadsheetId
   const worksheetName = draft.googleWorksheetName || "Assignments"
-  // The sheet is read by people looking up a company, so it's A to Z by name
-  // (the CSV export keeps booth order for walking the floor).
   const rows = (await getDraftExportRows(draftId)).sort((a, b) =>
     a.Name.localeCompare(b.Name, undefined, { sensitivity: "base" })
   )
@@ -74,10 +64,6 @@ export async function writeDraftToGoogleSheet(draftId: string): Promise<void> {
   })
 }
 
-/**
- * Writes the sheet and records how it went on the draft, so the export card can
- * show when the sheet was last brought up to date or why it wasn't.
- */
 export async function syncDraftToGoogleSheet(
   draftId: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -111,11 +97,6 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 type Pending = { phase: "waiting" | "writing"; dirty: boolean; done: Promise<void> }
 const pending = new Map<string, Pending>()
 
-/**
- * Runs one sync for the draft and settles when the draft is idle again.
- * Changes that arrive while waiting are covered by the upcoming read; changes
- * that arrive mid-write mark the entry dirty so exactly one follow-up runs.
- */
 function syncSoon(draftId: string): Promise<void> {
   const current = pending.get(draftId)
   if (current) {
@@ -142,15 +123,6 @@ function syncSoon(draftId: string): Promise<void> {
   return entry.done
 }
 
-/**
- * Call after any change that alters the export (placing, moving, unassigning,
- * importing, editing or deleting a company). Returns immediately; the sheet is
- * rewritten after the response is sent, and only if the draft has a connected
- * sheet with auto-sync on.
- *
- * Coalescing is per process. Two server instances handling a burst may each
- * write once, which is harmless since every write reproduces the full state.
- */
 export function scheduleGoogleSheetSync(draftId: string): void {
   after(() => syncSoon(draftId))
 }

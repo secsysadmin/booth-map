@@ -151,8 +151,6 @@ export default function EditorPage() {
     }
   }
 
-  // Background syncs finish after the map has already updated, so the status
-  // shown in the dialog is fetched fresh each time it opens.
   async function refreshGoogleSyncStatus() {
     const res = await apiFetch(`/api/drafts/${draftId}`)
     if (!res.ok) return

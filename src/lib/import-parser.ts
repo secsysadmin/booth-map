@@ -356,17 +356,14 @@ export function parseReport(text: string): {
 }
 
 /**
- * Groups registrations by company name plus "Registered On" text. Rows that
- * share a key are never collapsed into one — a company that books two booths as
- * two separate registrations lands in the report twice with the same timestamp,
- * and both are real companies. The key only decides which existing rows an
- * incoming row is allowed to be matched against; see `matchRegistrations`.
+ * Identifies a registration by company name plus its "Registered On" text, so a
+ * company that cancels and re-registers stays two rows instead of overwriting
+ * itself. Reports without a date column collapse to one row per company.
  */
 export function registrationKey(name: string, registeredOn: string | null): string {
   return `${name.trim().toLowerCase().replace(/\s+/g, " ")}|${registeredOn || ""}`
 }
 
-/** The subset of a stored company that an import compares against. */
 export interface ExistingRegistration {
   sponsorship: Sponsorship
   status: RegistrationStatus
@@ -377,7 +374,6 @@ export interface ExistingRegistration {
 
 function matchScore(existing: ExistingRegistration, incoming: ParsedRegistration): number {
   let score = diffRegistration(existing, incoming).length
-  // Two identical packages under one name are told apart by who registered.
   if (
     incoming.contactEmail &&
     existing.contactEmail &&
@@ -388,12 +384,6 @@ function matchScore(existing: ExistingRegistration, incoming: ParsedRegistration
   return score
 }
 
-/**
- * Pairs the incoming rows of one registration key with the existing rows of the
- * same key, closest match first, so a re-import updates each row in place
- * instead of duplicating it or overwriting the wrong one. Incoming rows left
- * over are new companies; existing rows left over are gone from the report.
- */
 export function matchRegistrations<E extends ExistingRegistration>(
   incoming: ParsedRegistration[],
   existing: E[]

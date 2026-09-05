@@ -61,7 +61,6 @@ export interface Company {
   draftId: string
 }
 
-// What the "Add company" form collects; everything else takes its default.
 export interface NewCompanyInput {
   name: string
   sponsorship: Sponsorship
