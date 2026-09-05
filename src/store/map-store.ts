@@ -7,6 +7,7 @@ import type {
   DayCapacity,
   IndustryZoneConfig,
   IndustryZoneRegion,
+  NewCompanyInput,
   Sponsorship,
   SidebarFilter,
 } from "@/types"
@@ -60,6 +61,7 @@ interface MapStore {
   setCompanies: (companies: Company[]) => void
   setAssignments: (assignments: BoothAssignment[]) => void
   addCompany: (company: Company) => void
+  createCompany: (input: NewCompanyInput) => Promise<Company>
   updateCompany: (id: string, updates: Partial<Company>) => Promise<void>
   deleteCompany: (id: string) => Promise<void>
   setCapacityPerDay: (capacity: number) => void
@@ -177,6 +179,27 @@ export const useMapStore = create<MapStore>((set, get) => ({
 
   addCompany: (company) =>
     set((state) => ({ companies: [...state.companies, company] })),
+
+  createCompany: async (input) => {
+    const { draftId } = get()
+    if (!draftId) throw new Error("No draft loaded")
+    try {
+      const res = await authFetch(`/api/drafts/${draftId}/companies`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to add company")
+      }
+      const company: Company = await res.json()
+      get().addCompany(company)
+      return company
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to add company")
+      throw e
+    }
+  },
 
   updateCompany: async (id, updates) => {
     const snapshot = get().companies

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getAuthUser } from "@/lib/auth"
+import { scheduleGoogleSheetSync } from "@/lib/google-sync"
 import { ALL_ROWS, EDGE_ROWS } from "@/lib/constants"
 import { getBoothById, getBoothLayout, getSegmentBooths } from "@/lib/booth-geometry"
 import type { Day, BoothAssignment, Industry } from "@/types"
@@ -237,6 +238,7 @@ export async function POST(req: NextRequest) {
       )
     : []
 
+  if (created.length) scheduleGoogleSheetSync(draftId)
   return NextResponse.json({
     created,
     placedCount: created.length,

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { Prisma } from "@prisma/client"
 import { getAuthUser } from "@/lib/auth"
 import { getBoothById } from "@/lib/booth-geometry"
+import { scheduleGoogleSheetSync } from "@/lib/google-sync"
 import { ALL_ROWS } from "@/lib/constants"
 import type {
   Industry,
@@ -221,6 +222,7 @@ export async function PUT(
     industryZones?: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput
     googleSheetUrl?: string | null
     googleWorksheetName?: string | null
+    googleAutoSync?: boolean
   } = {}
 
   if (typeof body.name === "string") {
@@ -278,6 +280,10 @@ export async function PUT(
     }
   }
 
+  if (typeof body.googleAutoSync === "boolean") {
+    data.googleAutoSync = body.googleAutoSync
+  }
+
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "No updates provided" }, { status: 400 })
   }
@@ -289,6 +295,9 @@ export async function PUT(
 
   if (draft.count === 0)
     return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+  // Turning sync on catches the sheet up on whatever changed while it was off.
+  if (data.googleAutoSync === true) scheduleGoogleSheetSync(id)
 
   return NextResponse.json({ success: true })
 }

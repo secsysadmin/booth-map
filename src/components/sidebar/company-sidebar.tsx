@@ -14,9 +14,10 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { CompanyCard } from "./company-card"
+import { AddCompanyDialog } from "./add-company-dialog"
 import { SPONSORSHIP_CONFIG } from "@/lib/constants"
 import type { Company, Sponsorship } from "@/types"
-import { Search, XCircle } from "lucide-react"
+import { Plus, Search, XCircle } from "lucide-react"
 import { toast } from "sonner"
 
 const TIER_ORDER: Sponsorship[] = ["MAROON", "DIAMOND", "GOLD", "SILVER", "BASIC"]
@@ -31,6 +32,7 @@ export function CompanySidebar() {
     unassignAll,
   } = useMapStore()
   const [confirmingUnassignAll, setConfirmingUnassignAll] = useState(false)
+  const [addCompanyOpen, setAddCompanyOpen] = useState(false)
 
   const assignedCompanyIds = useMemo(
     () => new Set(assignments.map((a) => a.companyId)),
@@ -127,14 +129,26 @@ export function CompanySidebar() {
   return (
     <div className="flex w-72 flex-col overflow-hidden border-r bg-white">
       <div className="space-y-3 p-3">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search companies..."
-            className="pl-9"
-            value={sidebarFilter.search}
-            onChange={(e) => setSidebarFilter({ search: e.target.value })}
-          />
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search companies..."
+              className="pl-9"
+              value={sidebarFilter.search}
+              onChange={(e) => setSidebarFilter({ search: e.target.value })}
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 shrink-0 gap-1 px-2"
+            title="Add a company by hand, without importing a report"
+            onClick={() => setAddCompanyOpen(true)}
+          >
+            <Plus className="h-4 w-4" />
+            Add
+          </Button>
         </div>
         <div className="flex gap-2">
           <Select
@@ -281,6 +295,8 @@ export function CompanySidebar() {
           )}
         </div>
       </ScrollArea>
+
+      <AddCompanyDialog open={addCompanyOpen} onOpenChange={setAddCompanyOpen} />
     </div>
   )
 }

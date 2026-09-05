@@ -356,12 +356,62 @@ export function parseReport(text: string): {
 }
 
 /**
- * Identifies a registration by company name plus its "Registered On" text, so a
- * company that cancels and re-registers stays two rows instead of overwriting
- * itself. Reports without a date column collapse to one row per company.
+ * Groups registrations by company name plus "Registered On" text. Rows that
+ * share a key are never collapsed into one — a company that books two booths as
+ * two separate registrations lands in the report twice with the same timestamp,
+ * and both are real companies. The key only decides which existing rows an
+ * incoming row is allowed to be matched against; see `matchRegistrations`.
  */
 export function registrationKey(name: string, registeredOn: string | null): string {
   return `${name.trim().toLowerCase().replace(/\s+/g, " ")}|${registeredOn || ""}`
+}
+
+/** The subset of a stored company that an import compares against. */
+export interface ExistingRegistration {
+  sponsorship: Sponsorship
+  status: RegistrationStatus
+  days: Day[]
+  industry: Industry
+  contactEmail?: string | null
+}
+
+function matchScore(existing: ExistingRegistration, incoming: ParsedRegistration): number {
+  let score = diffRegistration(existing, incoming).length
+  // Two identical packages under one name are told apart by who registered.
+  if (
+    incoming.contactEmail &&
+    existing.contactEmail &&
+    incoming.contactEmail.toLowerCase() !== existing.contactEmail.toLowerCase()
+  ) {
+    score += 0.5
+  }
+  return score
+}
+
+/**
+ * Pairs the incoming rows of one registration key with the existing rows of the
+ * same key, closest match first, so a re-import updates each row in place
+ * instead of duplicating it or overwriting the wrong one. Incoming rows left
+ * over are new companies; existing rows left over are gone from the report.
+ */
+export function matchRegistrations<E extends ExistingRegistration>(
+  incoming: ParsedRegistration[],
+  existing: E[]
+): { matched: (E | undefined)[]; unmatched: E[] } {
+  const pairs: { i: number; e: number; score: number }[] = []
+  incoming.forEach((r, i) => {
+    existing.forEach((c, e) => pairs.push({ i, e, score: matchScore(c, r) }))
+  })
+  pairs.sort((a, b) => a.score - b.score || a.i - b.i || a.e - b.e)
+
+  const matched: (E | undefined)[] = new Array(incoming.length).fill(undefined)
+  const usedExisting = new Set<number>()
+  for (const p of pairs) {
+    if (matched[p.i] !== undefined || usedExisting.has(p.e)) continue
+    matched[p.i] = existing[p.e]
+    usedExisting.add(p.e)
+  }
+  return { matched, unmatched: existing.filter((_, e) => !usedExisting.has(e)) }
 }
 
 function dayLabel(days: Day[]): string {
@@ -375,12 +425,7 @@ function dayLabel(days: Day[]): string {
 
 /** Human-readable list of what an import would change about an existing row. */
 export function diffRegistration(
-  existing: {
-    sponsorship: Sponsorship
-    status: RegistrationStatus
-    days: Day[]
-    industry: Industry
-  },
+  existing: ExistingRegistration,
   incoming: ParsedRegistration
 ): string[] {
   const changes: string[] = []
