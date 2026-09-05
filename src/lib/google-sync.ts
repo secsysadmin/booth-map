@@ -38,7 +38,11 @@ export async function writeDraftToGoogleSheet(draftId: string): Promise<void> {
 
   const spreadsheetId = draft.googleSpreadsheetId
   const worksheetName = draft.googleWorksheetName || "Assignments"
-  const rows = await getDraftExportRows(draftId)
+  // The sheet is read by people looking up a company, so it's A to Z by name
+  // (the CSV export keeps booth order for walking the floor).
+  const rows = (await getDraftExportRows(draftId)).sort((a, b) =>
+    a.Name.localeCompare(b.Name, undefined, { sensitivity: "base" })
+  )
   const values = [
     ["Name", "DAYS REGISTERED", "ASSIGNMENT"],
     ...rows.map((row) => [row.Name, row["DAYS REGISTERED"], row.ASSIGNMENT]),
